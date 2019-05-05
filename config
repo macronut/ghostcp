@@ -5,7 +5,7 @@ mss=512
 #LEVEL3
 .wikipedia.org=208.80.154.224
 .m.wikipedia.org=208.80.154.224
-upload.wikimedia.org
+upload.wikimedia.org=208.80.154.240
 .wikimedia.org
 steamcommunity.com
 .steamcommunity.com
@@ -67,3 +67,17 @@ vimeo.com
 google.com=216.58.204.168
 .google.com=216.58.204.168
 .google.com.hk=216.58.204.168
+
+facebook.com=157.240.25.35
+.facebook.com=157.240.25.35
+www.facebook.com=157.240.25.35
+m.facebook.com=157.240.21.35
+web.facebook.com=157.240.21.41
+2-edge-chat.facebook.com=157.240.21.16
+.fbcdn.net=157.240.25.31
+static.xx.fbcdn.net=157.240.21.20
+scontent-sin2-2.xx.fbcdn.net=157.240.25.31
+video-sin2-2.xx.fbcdn.net=157.240.25.23
+.fbsbx.com=157.240.21.16
+attachment.fbsbx.com=157.240.21.16
+lookaside.fbsbx.com=157.240.21.20
