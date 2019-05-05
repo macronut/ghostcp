@@ -8,22 +8,26 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/williamfhe/godivert"
 )
 
-var mutex sync.RWMutex
+type Config struct {
+	Level   uint16
+	ANCount uint16
+	Answers []byte
+}
 
-var DomainMap map[string]int
+var DomainMap map[string]Config
 var IPMap map[string]int
 var DNS string
 var TTL int
 var MSS int
 
-func tcp_lookup(request []byte, address string) ([]byte, error) {
+func TCPlookup(request []byte, address string) ([]byte, error) {
 	server, err := net.Dial("tcp", address)
 	if err != nil {
 		return nil, err
@@ -33,7 +37,12 @@ func tcp_lookup(request []byte, address string) ([]byte, error) {
 	binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
 	copy(data[2:], request)
 
-	_, err = server.Write(data[:len(request)+2])
+	_, err = server.Write(data[:20])
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = server.Write(data[20 : len(request)+2])
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +66,7 @@ func tcp_lookup(request []byte, address string) ([]byte, error) {
 	return nil, nil
 }
 
-func get_qname(buf []byte) (string, int) {
+func getQName(buf []byte) (string, int) {
 	bufflen := len(buf)
 	if bufflen < 13 {
 		return "", 0
@@ -85,27 +94,27 @@ func get_qname(buf []byte) (string, int) {
 	return qname, off + 4
 }
 
-func domainLookup(qname string) int {
-	level, ok := DomainMap[qname]
+func domainLookup(qname string) Config {
+	config, ok := DomainMap[qname]
 	if ok {
-		return level
+		return config
 	}
 
 	offset := 0
 	for i := 0; i < 2; i++ {
 		off := strings.Index(qname[offset:], ".")
 		if off == -1 {
-			return 0
+			return Config{0, 0, nil}
 		}
 		offset += off
-		level, ok = DomainMap[qname[offset:]]
+		config, ok = DomainMap[qname[offset:]]
 		if ok {
-			return level
+			return config
 		}
 		offset++
 	}
 
-	return 0
+	return Config{0, 0, nil}
 }
 
 func getAnswers(answers []byte, count int) []string {
@@ -145,7 +154,25 @@ func getAnswers(answers []byte, count int) []string {
 	return ips
 }
 
-func dns_daemon() {
+func packAnswers(ips []string) []byte {
+	count := len(ips)
+	answers := make([]byte, 16*count)
+	length := 0
+	for _, ip := range ips {
+		ip4 := net.ParseIP(ip).To4()
+		if ip4 != nil {
+			answer := []byte{0xC0, 0x0C, 0x00, 0x01,
+				0x00, 0x01, 0x00, 0x00, 0x0E, 0x10, 0x00, 0x04,
+				ip4[0], ip4[1], ip4[2], ip4[3]}
+			copy(answers[length:], answer)
+			length += 16
+		}
+	}
+
+	return answers
+}
+
+func DNSDaemon() {
 	arg := []string{"/flushdns"}
 	cmd := exec.Command("ipconfig", arg...)
 	d, err := cmd.CombinedOutput()
@@ -172,46 +199,66 @@ func dns_daemon() {
 
 		ipheadlen := int(packet.Raw[0]&0xF) * 4
 		udpheadlen := 8
-		qname, off := get_qname(packet.Raw[ipheadlen+udpheadlen:])
+		qname, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
 
-		level := domainLookup(qname)
-		if level > 0 {
+		config := domainLookup(qname)
+		if config.Level > 0 {
 			log.Println(qname)
 
-			response, err := tcp_lookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
-			if err != nil {
-				log.Println(err)
-				continue
+			if config.ANCount > 0 {
+				request := packet.Raw[ipheadlen+udpheadlen:]
+				copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
+				udpsize := len(request) + len(config.Answers) + 8
+				packetsize := 20 + udpsize
+				binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
+				copy(rawbuf[12:], packet.Raw[16:20])
+				copy(rawbuf[16:], packet.Raw[12:16])
+				copy(rawbuf[20:], packet.Raw[22:24])
+				copy(rawbuf[22:], packet.Raw[20:22])
+				binary.BigEndian.PutUint16(rawbuf[24:], uint16(udpsize))
+				copy(rawbuf[28:], request)
+				rawbuf[30] = 0x81
+				rawbuf[31] = 0x80
+				binary.BigEndian.PutUint16(rawbuf[34:], config.ANCount)
+				copy(rawbuf[28+len(request):], config.Answers)
+
+				packet.PacketLen = uint(packetsize)
+				packet.Raw = rawbuf[:packetsize]
+				packet.CalcNewChecksum(winDivert)
+			} else {
+				response, err := TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+
+				count := int(binary.BigEndian.Uint16(response[6:8]))
+				ips := getAnswers(response[off:], count)
+				for _, ip := range ips {
+					IPMap[ip] = int(config.Level)
+				}
+
+				copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
+				packetsize := 28 + len(response)
+				binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
+				copy(rawbuf[12:], packet.Raw[16:20])
+				copy(rawbuf[16:], packet.Raw[12:16])
+				copy(rawbuf[20:], packet.Raw[22:24])
+				copy(rawbuf[22:], packet.Raw[20:22])
+				binary.BigEndian.PutUint16(rawbuf[24:], uint16(len(response)+8))
+				copy(rawbuf[28:], response)
+
+				packet.PacketLen = uint(packetsize)
+				packet.Raw = rawbuf[:packetsize]
+				packet.CalcNewChecksum(winDivert)
 			}
-
-			count := int(binary.BigEndian.Uint16(response[6:8]))
-			ips := getAnswers(response[off:], count)
-			mutex.Lock()
-			for _, ip := range ips {
-				IPMap[ip] = level
-			}
-			mutex.Unlock()
-
-			copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
-			packetsize := 28 + len(response)
-			binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
-			copy(rawbuf[12:], packet.Raw[16:20])
-			copy(rawbuf[16:], packet.Raw[12:16])
-			copy(rawbuf[20:], packet.Raw[22:24])
-			copy(rawbuf[22:], packet.Raw[20:22])
-			binary.BigEndian.PutUint16(rawbuf[24:], uint16(len(response)+8))
-			copy(rawbuf[28:], response)
-			packet.PacketLen = uint(packetsize)
-			packet.Raw = rawbuf[:packetsize]
-
-			packet.CalcNewChecksum(winDivert)
 		}
 
 		_, err = winDivert.Send(packet)
 	}
 }
 
-func dot_daemon() {
+func DOTDaemon() {
 	filter := "tcp.Psh and tcp.DstPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
@@ -232,7 +279,7 @@ func dot_daemon() {
 		ipheadlen := int(packet.Raw[0]&0xF) * 4
 		tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-		rawbuf[8] = byte(10)
+		rawbuf[8] = byte(TTL)
 		fake_packet := *packet
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 		fake_packet.CalcNewChecksum(winDivert)
@@ -247,6 +294,58 @@ func dot_daemon() {
 		if err != nil {
 			log.Println(err)
 			return
+		}
+
+		_, err = winDivert.Send(packet)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	}
+}
+
+func HTTPDaemon() {
+	filter := "tcp.Psh and tcp.DstPort == 80"
+	winDivert, err := godivert.NewWinDivertHandle(filter)
+	if err != nil {
+		log.Println(err, filter)
+		return
+	}
+	defer winDivert.Close()
+
+	rawbuf := make([]byte, 1500)
+
+	for {
+		packet, err := winDivert.Recv()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		level, ok := IPMap[packet.DstIP().String()]
+
+		if ok {
+			if level > 1 {
+				ipheadlen := int(packet.Raw[0]&0xF) * 4
+				tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
+				copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+				rawbuf[8] = byte(TTL)
+				fake_packet := *packet
+				fake_packet.Raw = rawbuf[:len(packet.Raw)]
+				fake_packet.CalcNewChecksum(winDivert)
+
+				_, err = winDivert.Send(&fake_packet)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+
+				_, err = winDivert.Send(&fake_packet)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+			}
 		}
 
 		_, err = winDivert.Send(packet)
@@ -294,6 +393,8 @@ func hello(SrcPort int, TTL int) error {
 		return err
 	}
 
+	//time.Sleep(time.Microsecond * 40)
+
 	_, err = winDivert.Send(packet)
 	if err != nil {
 		log.Println(err)
@@ -303,8 +404,9 @@ func hello(SrcPort int, TTL int) error {
 	return nil
 }
 
-func load_config() error {
-	DomainMap = make(map[string]int)
+func loadConfig() error {
+	DomainMap = make(map[string]Config)
+	IPMap = make(map[string]int)
 	conf, err := os.Open("config")
 	if err != nil {
 		return err
@@ -320,7 +422,9 @@ func load_config() error {
 		}
 		if len(line) > 0 {
 			if line[0] == '#' {
-				if string(line) == "#LEVEL1" {
+				if string(line) == "#LEVEL0" {
+					level = 0
+				} else if string(line) == "#LEVEL1" {
 					level = 1
 				} else if string(line) == "#LEVEL2" {
 					level = 2
@@ -349,10 +453,15 @@ func load_config() error {
 							return err
 						}
 						log.Println(string(line))
+					} else {
+						ips := strings.Split(keys[1], ",")
+						for _, ip := range ips {
+							IPMap[ip] = level
+						}
+						DomainMap[keys[0]] = Config{uint16(level), uint16(len(ips)), packAnswers(ips)}
 					}
-
 				} else {
-					DomainMap[keys[0]] = level
+					DomainMap[keys[0]] = Config{uint16(level), 0, nil}
 				}
 			}
 		}
@@ -362,12 +471,13 @@ func load_config() error {
 }
 
 func main() {
-	err := load_config()
+	runtime.GOMAXPROCS(1)
+
+	err := loadConfig()
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	IPMap = make(map[string]int)
 
 	filter := "tcp.Syn and tcp.DstPort == 443"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
@@ -377,8 +487,9 @@ func main() {
 	}
 	defer winDivert.Close()
 
-	go dns_daemon()
-	go dot_daemon()
+	go DNSDaemon()
+	go DOTDaemon()
+	go HTTPDaemon()
 
 	for {
 		packet, err := winDivert.Recv()
@@ -387,9 +498,7 @@ func main() {
 			return
 		}
 
-		mutex.RLock()
 		level, ok := IPMap[packet.DstIP().String()]
-		mutex.RUnlock()
 
 		if ok {
 			ipheadlen := int(packet.Raw[0]&0xF) * 4
