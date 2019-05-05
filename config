@@ -3,14 +3,15 @@ ttl=12
 mss=512
 
 #LEVEL3
-.wikipedia.org
-.m.wikipedia.org
+.wikipedia.org=208.80.154.224
+.m.wikipedia.org=208.80.154.224
 upload.wikimedia.org
 .wikimedia.org
 steamcommunity.com
 .steamcommunity.com
 pixiv.net
 .pixiv.net
+.pximg.net
 tumblr.com
 .tumblr.com
 tumblr.co
@@ -63,5 +64,6 @@ vimeo.com
 .vimeo.com
 
 #LEVEL4
-google.com
-.google.com
+google.com=216.58.204.168
+.google.com=216.58.204.168
+.google.com.hk=216.58.204.168
