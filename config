@@ -68,6 +68,15 @@ google.com=216.58.204.168
 .google.com=216.58.204.168
 .google.com.hk=216.58.204.168
 
+.twitter.com
+.twimg.com
+twitter.com=209.237.192.128
+mobile.twitter.com=209.237.192.128
+ton.twimg.com=117.18.237.211
+abs-0.twimg.com=104.244.43.195
+abs.twimg.com=117.18.237.211
+pbs.twimg.com=117.18.237.211
+
 facebook.com=157.240.25.35
 .facebook.com=157.240.25.35
 www.facebook.com=157.240.25.35
@@ -75,9 +84,4 @@ m.facebook.com=157.240.21.35
 web.facebook.com=157.240.21.41
 2-edge-chat.facebook.com=157.240.21.16
 .fbcdn.net=157.240.25.31
-static.xx.fbcdn.net=157.240.21.20
-scontent-sin2-2.xx.fbcdn.net=157.240.25.31
-video-sin2-2.xx.fbcdn.net=157.240.25.23
-.fbsbx.com=157.240.21.16
-attachment.fbsbx.com=157.240.21.16
-lookaside.fbsbx.com=157.240.21.20
+.fbsbx.com=157.240.25.31
