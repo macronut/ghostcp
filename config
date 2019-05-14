@@ -5,7 +5,7 @@ mss=512
 #LEVEL3
 .wikipedia.org=208.80.154.224
 .m.wikipedia.org=208.80.154.224
-upload.wikimedia.org=208.80.154.240
+upload.wikimedia.org
 .wikimedia.org
 steamcommunity.com
 .steamcommunity.com
@@ -18,8 +18,10 @@ tumblr.co
 .tumblr.co
 instagram.com
 .instagram.com
+.cdninstagram.com=157.240.25.63
 quora.com
 .quora.com
+.quoracdn.net
 reddit.com
 .reddit.com
 redditmedia.com
@@ -67,6 +69,9 @@ vimeo.com
 google.com=216.58.204.168
 .google.com=216.58.204.168
 .google.com.hk=216.58.204.168
+.googleapis.com=216.58.204.168
+.ajax.googleapis.com=216.58.204.168
+.googletagmanager.com=216.58.204.168
 
 .twitter.com
 .twimg.com
