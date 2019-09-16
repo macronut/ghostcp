@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/williamfhe/godivert"
 )
@@ -26,6 +27,7 @@ var IPMap map[string]int
 var DNS string
 var TTL int
 var MSS int
+var LocalDNS bool = false
 
 func TCPlookup(request []byte, address string) ([]byte, error) {
 	server, err := net.Dial("tcp", address)
@@ -197,15 +199,19 @@ func DNSDaemon() {
 			continue
 		}
 
+		ipv6 := packet.Raw[0]>>4 == 6
+		if ipv6 {
+			continue
+		}
+
 		ipheadlen := int(packet.Raw[0]&0xF) * 4
 		udpheadlen := 8
 		qname, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
 
 		config := domainLookup(qname)
 		if config.Level > 0 {
-			log.Println(qname)
-
 			if config.ANCount > 0 {
+				log.Println(qname)
 				request := packet.Raw[ipheadlen+udpheadlen:]
 				copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
 				udpsize := len(request) + len(config.Answers) + 8
@@ -225,7 +231,8 @@ func DNSDaemon() {
 				packet.PacketLen = uint(packetsize)
 				packet.Raw = rawbuf[:packetsize]
 				packet.CalcNewChecksum(winDivert)
-			} else {
+			} else if !LocalDNS {
+				log.Println(qname, config.Level)
 				response, err := TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
 				if err != nil {
 					log.Println(err)
@@ -254,6 +261,40 @@ func DNSDaemon() {
 			}
 		}
 
+		_, err = winDivert.Send(packet)
+	}
+}
+
+func DNSRecvDaemon() {
+	filter := "udp.SrcPort == 53"
+	winDivert, err := godivert.NewWinDivertHandle(filter)
+	if err != nil {
+		log.Println(err, filter)
+		return
+	}
+	defer winDivert.Close()
+
+	for {
+		packet, err := winDivert.Recv()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		ipheadlen := int(packet.Raw[0]&0xF) * 4
+		udpheadlen := 8
+		qname, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
+		config := domainLookup(qname)
+
+		if config.Level > 1 {
+			log.Println(qname, config.Level)
+			response := packet.Raw[ipheadlen+udpheadlen:]
+			count := int(binary.BigEndian.Uint16(response[6:8]))
+			ips := getAnswers(response[off:], count)
+			for _, ip := range ips {
+				IPMap[ip] = int(config.Level)
+			}
+		}
 		_, err = winDivert.Send(packet)
 	}
 }
@@ -393,7 +434,7 @@ func hello(SrcPort int, TTL int) error {
 		return err
 	}
 
-	//time.Sleep(time.Microsecond * 40)
+	time.Sleep(time.Microsecond * 10)
 
 	_, err = winDivert.Send(packet)
 	if err != nil {
@@ -438,6 +479,7 @@ func loadConfig() error {
 				if len(keys) > 1 {
 					if keys[0] == "server" {
 						DNS = keys[1]
+						LocalDNS = DNS == "127.0.0.1:53"
 						log.Println(string(line))
 					} else if keys[0] == "ttl" {
 						TTL, err = strconv.Atoi(keys[1])
@@ -488,7 +530,12 @@ func main() {
 	defer winDivert.Close()
 
 	go DNSDaemon()
-	go DOTDaemon()
+	if LocalDNS {
+		go DNSRecvDaemon()
+	} else {
+		go DOTDaemon()
+	}
+
 	go HTTPDaemon()
 
 	for {
@@ -503,7 +550,7 @@ func main() {
 		if ok {
 			ipheadlen := int(packet.Raw[0]&0xF) * 4
 
-			if level > 3 {
+			if level > 2 {
 				if len(packet.Raw) < ipheadlen+24 {
 					log.Println(packet)
 					return
