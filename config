@@ -2,10 +2,10 @@ server=8.8.8.8:53
 ttl=12
 mss=512
 
-#LEVEL3
+#LEVEL2
 .wikipedia.org=208.80.154.224
 .m.wikipedia.org=208.80.154.224
-upload.wikimedia.org
+upload.wikimedia.org=208.80.153.240
 .wikimedia.org
 steamcommunity.com
 .steamcommunity.com
@@ -18,7 +18,7 @@ tumblr.co
 .tumblr.co
 instagram.com
 .instagram.com
-.cdninstagram.com=157.240.25.63
+.cdninstagram.com
 quora.com
 .quora.com
 .quoracdn.net
@@ -34,8 +34,8 @@ dmc.nico
 .dmc.nico
 bbc.com
 .bbc.com
-dropbox.com
-.dropbox.com
+dropbox.com=78.129.226.64
+.dropbox.com=78.129.226.64
 dropboxapi.com
 .dropboxapi.com
 dropbox-dns.com
@@ -65,7 +65,7 @@ artstation.com
 vimeo.com
 .vimeo.com
 
-#LEVEL4
+#LEVEL3
 google.com=216.58.204.168
 .google.com=216.58.204.168
 .google.com.hk=216.58.204.168
