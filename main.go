@@ -68,10 +68,10 @@ func TCPlookup(request []byte, address string) ([]byte, error) {
 	return nil, nil
 }
 
-func getQName(buf []byte) (string, int) {
+func getQName(buf []byte) (string, int, int) {
 	bufflen := len(buf)
 	if bufflen < 13 {
-		return "", 0
+		return "", 0, 0
 	}
 	length := buf[12]
 	off := 13
@@ -81,7 +81,7 @@ func getQName(buf []byte) (string, int) {
 
 	for {
 		if off > bufflen {
-			return "", 0
+			return "", 0, 0
 		}
 		length := buf[off]
 		off++
@@ -93,7 +93,9 @@ func getQName(buf []byte) (string, int) {
 		off = end
 	}
 
-	return qname, off + 4
+	qtype := int(binary.BigEndian.Uint16(buf[off : off+2]))
+
+	return qname, qtype, off + 4
 }
 
 func domainLookup(qname string) Config {
@@ -200,64 +202,111 @@ func DNSDaemon() {
 		}
 
 		ipv6 := packet.Raw[0]>>4 == 6
-		if ipv6 {
-			continue
-		}
 
-		ipheadlen := int(packet.Raw[0]&0xF) * 4
+		var ipheadlen int
+		if ipv6 {
+			ipheadlen = 40
+		} else {
+			ipheadlen = int(packet.Raw[0]&0xF) * 4
+		}
 		udpheadlen := 8
-		qname, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
+		qname, qtype, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
 
 		config := domainLookup(qname)
 		if config.Level > 0 {
-			if config.ANCount > 0 {
-				log.Println(qname)
+			if qtype == 28 {
 				request := packet.Raw[ipheadlen+udpheadlen:]
-				copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
-				udpsize := len(request) + len(config.Answers) + 8
-				packetsize := 20 + udpsize
-				binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
-				copy(rawbuf[12:], packet.Raw[16:20])
-				copy(rawbuf[16:], packet.Raw[12:16])
-				copy(rawbuf[20:], packet.Raw[22:24])
-				copy(rawbuf[22:], packet.Raw[20:22])
-				binary.BigEndian.PutUint16(rawbuf[24:], uint16(udpsize))
-				copy(rawbuf[28:], request)
-				rawbuf[30] = 0x81
-				rawbuf[31] = 0x80
-				binary.BigEndian.PutUint16(rawbuf[34:], config.ANCount)
-				copy(rawbuf[28+len(request):], config.Answers)
+				udpsize := len(request) + 8
+
+				var packetsize int
+				if ipv6 {
+					copy(rawbuf, []byte{96, 12, 19, 68, 0, 98, 17, 128})
+					packetsize = 40 + udpsize
+					binary.BigEndian.PutUint16(rawbuf[4:], uint16(udpsize))
+					copy(rawbuf[8:], packet.Raw[24:40])
+					copy(rawbuf[24:], packet.Raw[8:24])
+				} else {
+					copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
+					packetsize = 20 + udpsize
+					binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
+					copy(rawbuf[12:], packet.Raw[16:20])
+					copy(rawbuf[16:], packet.Raw[12:16])
+					ipheadlen = 20
+				}
+
+				copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
+				copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
+				binary.BigEndian.PutUint16(rawbuf[ipheadlen+4:], uint16(udpsize))
+				copy(rawbuf[ipheadlen+8:], request)
+				rawbuf[ipheadlen+10] = 0x81
+				rawbuf[ipheadlen+11] = 0x80
+				binary.BigEndian.PutUint16(rawbuf[ipheadlen+14:], 0)
 
 				packet.PacketLen = uint(packetsize)
 				packet.Raw = rawbuf[:packetsize]
 				packet.CalcNewChecksum(winDivert)
-			} else if !LocalDNS {
-				log.Println(qname, config.Level)
-				response, err := TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
-				if err != nil {
-					log.Println(err)
-					continue
+			} else {
+				if config.ANCount > 0 {
+					log.Println(qname)
+					request := packet.Raw[ipheadlen+udpheadlen:]
+					udpsize := len(request) + len(config.Answers) + 8
+
+					var packetsize int
+					if ipv6 {
+						copy(rawbuf, []byte{96, 12, 19, 68, 0, 98, 17, 128})
+						packetsize = 40 + udpsize
+						binary.BigEndian.PutUint16(rawbuf[4:], uint16(udpsize))
+						copy(rawbuf[8:], packet.Raw[24:40])
+						copy(rawbuf[24:], packet.Raw[8:24])
+					} else {
+						copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
+						packetsize = 20 + udpsize
+						binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
+						copy(rawbuf[12:], packet.Raw[16:20])
+						copy(rawbuf[16:], packet.Raw[12:16])
+						ipheadlen = 20
+					}
+
+					copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
+					copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
+					binary.BigEndian.PutUint16(rawbuf[ipheadlen+4:], uint16(udpsize))
+					copy(rawbuf[ipheadlen+8:], request)
+					rawbuf[ipheadlen+10] = 0x81
+					rawbuf[ipheadlen+11] = 0x80
+					binary.BigEndian.PutUint16(rawbuf[ipheadlen+14:], config.ANCount)
+					copy(rawbuf[ipheadlen+8+len(request):], config.Answers)
+
+					packet.PacketLen = uint(packetsize)
+					packet.Raw = rawbuf[:packetsize]
+					packet.CalcNewChecksum(winDivert)
+				} else if !LocalDNS {
+					log.Println(qname, config.Level)
+					response, err := TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
+					if err != nil {
+						log.Println(err)
+						continue
+					}
+
+					count := int(binary.BigEndian.Uint16(response[6:8]))
+					ips := getAnswers(response[off:], count)
+					for _, ip := range ips {
+						IPMap[ip] = int(config.Level)
+					}
+
+					copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
+					packetsize := 28 + len(response)
+					binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
+					copy(rawbuf[12:], packet.Raw[16:20])
+					copy(rawbuf[16:], packet.Raw[12:16])
+					copy(rawbuf[20:], packet.Raw[22:24])
+					copy(rawbuf[22:], packet.Raw[20:22])
+					binary.BigEndian.PutUint16(rawbuf[24:], uint16(len(response)+8))
+					copy(rawbuf[28:], response)
+
+					packet.PacketLen = uint(packetsize)
+					packet.Raw = rawbuf[:packetsize]
+					packet.CalcNewChecksum(winDivert)
 				}
-
-				count := int(binary.BigEndian.Uint16(response[6:8]))
-				ips := getAnswers(response[off:], count)
-				for _, ip := range ips {
-					IPMap[ip] = int(config.Level)
-				}
-
-				copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
-				packetsize := 28 + len(response)
-				binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
-				copy(rawbuf[12:], packet.Raw[16:20])
-				copy(rawbuf[16:], packet.Raw[12:16])
-				copy(rawbuf[20:], packet.Raw[22:24])
-				copy(rawbuf[22:], packet.Raw[20:22])
-				binary.BigEndian.PutUint16(rawbuf[24:], uint16(len(response)+8))
-				copy(rawbuf[28:], response)
-
-				packet.PacketLen = uint(packetsize)
-				packet.Raw = rawbuf[:packetsize]
-				packet.CalcNewChecksum(winDivert)
 			}
 		}
 
@@ -283,10 +332,10 @@ func DNSRecvDaemon() {
 
 		ipheadlen := int(packet.Raw[0]&0xF) * 4
 		udpheadlen := 8
-		qname, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
+		qname, qtype, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
 		config := domainLookup(qname)
 
-		if config.Level > 1 {
+		if config.Level > 1 && qtype == 1 {
 			log.Println(qname, config.Level)
 			response := packet.Raw[ipheadlen+udpheadlen:]
 			count := int(binary.BigEndian.Uint16(response[6:8]))
