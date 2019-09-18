@@ -479,6 +479,42 @@ func HTTPDaemon() {
 	}
 }
 
+func getSNI(b []byte) (offset int, length int) {
+	Length := binary.BigEndian.Uint16(b[3:5])
+	if len(b) <= int(Length)-5 {
+		return 0, 0
+	}
+	offset = 11 + 32
+	SessionIDLength := b[offset]
+	offset += 1 + int(SessionIDLength)
+	CipherSuitersLength := binary.BigEndian.Uint16(b[offset : offset+2])
+	offset += 2 + int(CipherSuitersLength)
+	if offset >= len(b) {
+		return 0, 0
+	}
+	CompressionMethodsLenght := b[offset]
+	offset += 1 + int(CompressionMethodsLenght)
+	ExtensionsLength := binary.BigEndian.Uint16(b[offset : offset+2])
+	offset += 2
+	ExtensionsEnd := offset + int(ExtensionsLength)
+	for offset < ExtensionsEnd {
+		ExtensionType := binary.BigEndian.Uint16(b[offset : offset+2])
+		offset += 2
+		ExtensionLength := binary.BigEndian.Uint16(b[offset : offset+2])
+		offset += 2
+		if ExtensionType == 0 {
+			offset += 2
+			offset++
+			ServerNameLength := binary.BigEndian.Uint16(b[offset : offset+2])
+			offset += 2
+			return offset, int(ServerNameLength)
+		} else {
+			offset += int(ExtensionLength)
+		}
+	}
+	return 0, 0
+}
+
 func hello(SrcPort int, TTL int) error {
 	filter := "tcp.Psh and tcp.SrcPort == " + strconv.Itoa(SrcPort)
 	winDivert, err := godivert.NewWinDivertHandle(filter)
@@ -498,25 +534,53 @@ func hello(SrcPort int, TTL int) error {
 
 	ipheadlen := int(packet.Raw[0]&0xF) * 4
 	tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
-	copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-	rawbuf[8] = byte(TTL)
-	fake_packet := *packet
-	fake_packet.Raw = rawbuf[:len(packet.Raw)]
-	fake_packet.CalcNewChecksum(winDivert)
+	sni_offset, sni_length := getSNI(packet.Raw[ipheadlen+tcpheadlen:])
 
-	_, err = winDivert.Send(&fake_packet)
-	if err != nil {
-		errorPrintln(err)
-		return err
+	if sni_length > 0 {
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		rawbuf[8] = byte(TTL)
+		fake_packet := *packet
+		fake_packet.Raw = rawbuf[:len(packet.Raw)]
+		fake_packet.CalcNewChecksum(winDivert)
+
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			errorPrintln(err)
+			return err
+		}
+
+		sni_cut_offset := sni_offset + sni_length/2
+		total_cut_offset := ipheadlen + tcpheadlen + sni_cut_offset
+
+		prefix_rawbuf := make([]byte, 1500)
+		copy(prefix_rawbuf, packet.Raw[:total_cut_offset])
+		binary.BigEndian.PutUint16(prefix_rawbuf[2:], uint16(total_cut_offset))
+		prefix_packet := *packet
+		prefix_packet.Raw = prefix_rawbuf[:total_cut_offset]
+		prefix_packet.PacketLen = uint(total_cut_offset)
+		prefix_packet.CalcNewChecksum(winDivert)
+		_, err = winDivert.Send(&prefix_packet)
+		if err != nil {
+			errorPrintln(err)
+			return err
+		}
+
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			errorPrintln(err)
+			return err
+		}
+
+		seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		copy(rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
+		totallen := uint16(packet.PacketLen) - uint16(sni_cut_offset)
+		binary.BigEndian.PutUint16(rawbuf[2:], totallen)
+		binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum+uint32(sni_cut_offset))
+		packet.Raw = rawbuf[:totallen]
+		packet.PacketLen = uint(totallen)
+		packet.CalcNewChecksum(winDivert)
 	}
-
-	_, err = winDivert.Send(&fake_packet)
-	if err != nil {
-		errorPrintln(err)
-		return err
-	}
-
-	time.Sleep(time.Microsecond * 10)
 
 	_, err = winDivert.Send(packet)
 	if err != nil {
