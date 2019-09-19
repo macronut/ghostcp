@@ -1,4 +1,5 @@
 server=8.8.8.8:53
+#local-dns
 ttl=12
 mss=512
 
@@ -34,6 +35,8 @@ dmc.nico
 .dmc.nico
 bbc.com
 .bbc.com
+.bbc.co.uk
+.bbci.co.uk
 dropbox.com=78.129.226.64
 .dropbox.com=78.129.226.64
 dropboxapi.com
@@ -64,29 +67,46 @@ artstation.com
 .artstation.com
 vimeo.com
 .vimeo.com
+sourceforge.net
+.sourceforge.net
+telegram.org=78.129.226.64
+.telegram.org=78.129.226.64
 
 #LEVEL3
 google.com=216.58.204.168
 .google.com=216.58.204.168
 .google.com.hk=216.58.204.168
 .googleapis.com=216.58.204.168
+.googleusercontent.com=173.194.79.188
 .ajax.googleapis.com=216.58.204.168
 .googletagmanager.com=216.58.204.168
+.youtube.com=216.58.204.168
+.ytimg.com=216.58.204.168
+.youtube-nocookie.com=216.58.204.168
+.youtu.be=216.58.204.168
+youtu.be=216.58.204.168
+.googlevideo.com=78.129.226.64
 
 .twitter.com
 .twimg.com
-twitter.com=209.237.192.128
-mobile.twitter.com=209.237.192.128
-ton.twimg.com=117.18.237.211
+twitter.com=199.59.150.15
+api.twitter.com=199.59.150.15
+mobile.twitter.com=199.59.150.15
+ton.twimg.com=93.184.220.70
 abs-0.twimg.com=104.244.43.195
-abs.twimg.com=117.18.237.211
-pbs.twimg.com=117.18.237.211
+abs.twimg.com=72.21.91.70
+pbs.twimg.com=117.18.237.70,192.229.233.50
 
-facebook.com=157.240.25.35
-.facebook.com=157.240.25.35
-www.facebook.com=157.240.25.35
-m.facebook.com=157.240.21.35
-web.facebook.com=157.240.21.41
-2-edge-chat.facebook.com=157.240.21.16
-.fbcdn.net=157.240.25.31
-.fbsbx.com=157.240.25.31
+facebook.com=70.186.24.83
+.facebook.com=70.186.24.83
+www.facebook.com=70.186.24.83
+m.facebook.com=70.186.24.83
+web.facebook.com=70.186.24.83
+2-edge-chat.facebook.com=78.129.226.64
+.fbcdn.net=78.129.226.64
+static.xx.fbcdn.net=78.129.226.64
+scontent-sin2-2.xx.fbcdn.net=78.129.226.64
+video-sin2-2.xx.fbcdn.net=78.129.226.64
+.fbsbx.com=78.129.226.64
+attachment.fbsbx.com=78.129.226.64
+lookaside.fbsbx.com=78.129.226.64
