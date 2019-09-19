@@ -515,27 +515,39 @@ func getSNI(b []byte) (offset int, length int) {
 	return 0, 0
 }
 
-func hello(SrcPort int, TTL int) error {
+func hello(SrcPort int, TTL int) {
 	filter := "tcp.Psh and tcp.SrcPort == " + strconv.Itoa(SrcPort)
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
 		errorPrintln(err, filter)
-		return err
+		return
 	}
 	defer winDivert.Close()
 
-	rawbuf := make([]byte, 1500)
+	ch := make(chan *godivert.Packet)
+	go func() {
+		packet, err := winDivert.Recv()
+		if err != nil {
+			errorPrintln(err)
+			return
+		}
 
-	packet, err := winDivert.Recv()
-	if err != nil {
-		errorPrintln(err)
-		return err
+		ch <- packet
+	}()
+
+	var packet *godivert.Packet
+	select {
+	case res := <-ch:
+		packet = res
+	case <-time.After(time.Second * 32):
+		return
 	}
 
 	ipheadlen := int(packet.Raw[0]&0xF) * 4
 	tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 	sni_offset, sni_length := getSNI(packet.Raw[ipheadlen+tcpheadlen:])
 
+	rawbuf := make([]byte, 1500)
 	if sni_length > 0 {
 		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
 		rawbuf[8] = byte(TTL)
@@ -546,7 +558,7 @@ func hello(SrcPort int, TTL int) error {
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
 			errorPrintln(err)
-			return err
+			return
 		}
 
 		sni_cut_offset := sni_offset + sni_length/2
@@ -562,13 +574,13 @@ func hello(SrcPort int, TTL int) error {
 		_, err = winDivert.Send(&prefix_packet)
 		if err != nil {
 			errorPrintln(err)
-			return err
+			return
 		}
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
 			errorPrintln(err)
-			return err
+			return
 		}
 
 		seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
@@ -585,10 +597,8 @@ func hello(SrcPort int, TTL int) error {
 	_, err = winDivert.Send(packet)
 	if err != nil {
 		errorPrintln(err)
-		return err
+		return
 	}
-
-	return nil
 }
 
 func loadConfig() error {
@@ -710,7 +720,7 @@ func StartService() {
 		return
 	}
 
-	filter := "tcp.Syn and tcp.DstPort == 443"
+	filter := "outbound and !loopback and tcp.Syn == 1 and tcp.Ack == 0 and tcp.DstPort == 443"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
 		errorPrintln(err, filter)
