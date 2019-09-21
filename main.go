@@ -31,6 +31,7 @@ var DNS string
 var TTL int
 var MSS int
 var LocalDNS bool = false
+var ServiceMode bool = true
 var LogLevel = 0
 
 func TCPlookup(request []byte, address string) ([]byte, error) {
@@ -136,34 +137,55 @@ func domainLookup(qname string) Config {
 func getAnswers(answers []byte, count int) []string {
 	ips := make([]string, 0)
 	offset := 0
+
 	for i := 0; i < count; i++ {
 		for {
-			length := binary.BigEndian.Uint16(answers[offset : offset+2])
-			offset += 2
-			if length > 0 && length < 63 {
+			if offset >= len(answers) {
+				return nil
+			}
+			length := answers[offset]
+			offset++
+			if length == 0 {
+				break
+			}
+			if length < 63 {
 				offset += int(length)
-				if offset > len(answers)-2 {
+				if offset+2 > len(answers) {
 					return nil
 				}
 			} else {
+				offset++
 				break
 			}
 		}
+		if offset+2 > len(answers) {
+			return nil
+		}
 		AType := binary.BigEndian.Uint16(answers[offset : offset+2])
 		offset += 8
+		if offset+2 > len(answers) {
+			return nil
+		}
 		DataLength := binary.BigEndian.Uint16(answers[offset : offset+2])
 		offset += 2
 
 		if AType == 1 {
+			if offset+4 > len(answers) {
+				return nil
+			}
 			data := answers[offset : offset+4]
 			ip := net.IPv4(data[0], data[1], data[2], data[3]).String()
 			ips = append(ips, ip)
 		} else if AType == 28 {
 			var data [16]byte
+			if offset+16 > len(answers) {
+				return nil
+			}
 			copy(data[:], answers[offset:offset+16])
 			ip := net.IP(answers[offset : offset+16]).String()
 			ips = append(ips, ip)
 		}
+
 		offset += int(DataLength)
 	}
 
@@ -197,7 +219,7 @@ func DNSDaemon() {
 		return
 	}
 
-	filter := "udp.DstPort == 53"
+	filter := "outbound and udp.DstPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
 		errorPrintln(err, filter)
@@ -331,7 +353,7 @@ func DNSDaemon() {
 }
 
 func DNSRecvDaemon() {
-	filter := "(ip.SrcAddr == 127.0.0.1 or ip.SrcAddr == ::1) and udp.SrcPort == 53"
+	filter := "((outbound and loopback) or inbound) and udp.SrcPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
 		errorPrintln(err, filter)
@@ -369,6 +391,7 @@ func DNSRecvDaemon() {
 			response := packet.Raw[ipheadlen+udpheadlen:]
 			count := int(binary.BigEndian.Uint16(response[6:8]))
 			ips := getAnswers(response[off:], count)
+
 			for _, ip := range ips {
 				IPMap[ip] = int(config.Level)
 			}
@@ -402,12 +425,6 @@ func DOTDaemon() {
 		fake_packet := *packet
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 		fake_packet.CalcNewChecksum(winDivert)
-
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			errorPrintln(err)
-			return
-		}
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
@@ -687,14 +704,14 @@ func loadConfig() error {
 var Logger *log.Logger
 
 func logPrintln(v ...interface{}) {
-	if LogLevel > 1 {
-		logPrintln(v)
+	if LogLevel > 1 || !ServiceMode {
+		log.Println(v)
 	}
 }
 
 func errorPrintln(v ...interface{}) {
-	if LogLevel > 0 {
-		logPrintln(v)
+	if LogLevel > 0 || !ServiceMode {
+		log.Println(v)
 	}
 }
 
@@ -855,5 +872,6 @@ func main() {
 		return
 	}
 
+	ServiceMode = false
 	StartService()
 }
