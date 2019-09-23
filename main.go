@@ -28,8 +28,8 @@ type Config struct {
 var DomainMap map[string]Config
 var IPMap map[string]int
 var DNS string
-var TTL int
-var MSS int
+var TTL int = 0
+var MSS int = 1024
 var LocalDNS bool = false
 var ServiceMode bool = true
 var LogLevel = 0
@@ -420,9 +420,16 @@ func DOTDaemon() {
 
 		ipheadlen := int(packet.Raw[0]&0xF) * 4
 		tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
-		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-		rawbuf[8] = byte(TTL)
+
 		fake_packet := *packet
+		if TTL > 0 {
+			copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+			rawbuf[8] = byte(TTL)
+		} else {
+			copy(rawbuf, packet.Raw[:ipheadlen+20])
+			copy(rawbuf[ipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+			rawbuf[ipheadlen+12] = 10 << 4
+		}
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 		fake_packet.CalcNewChecksum(winDivert)
 
@@ -466,9 +473,16 @@ func HTTPDaemon() {
 			if level > 1 {
 				ipheadlen := int(packet.Raw[0]&0xF) * 4
 				tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
-				copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-				rawbuf[8] = byte(TTL)
+
 				fake_packet := *packet
+				if TTL > 0 {
+					copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+					rawbuf[8] = byte(TTL)
+				} else {
+					copy(rawbuf, packet.Raw[:ipheadlen+20])
+					copy(rawbuf[ipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+					rawbuf[ipheadlen+12] = 10 << 4
+				}
 				fake_packet.Raw = rawbuf[:len(packet.Raw)]
 				fake_packet.CalcNewChecksum(winDivert)
 
@@ -566,9 +580,15 @@ func hello(SrcPort int, TTL int) {
 
 	rawbuf := make([]byte, 1500)
 	if sni_length > 0 {
-		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-		rawbuf[8] = byte(TTL)
 		fake_packet := *packet
+		if TTL > 0 {
+			copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+			rawbuf[8] = byte(TTL)
+		} else {
+			copy(rawbuf, packet.Raw[:ipheadlen+20])
+			copy(rawbuf[ipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+			rawbuf[ipheadlen+12] = 10 << 4
+		}
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 		fake_packet.CalcNewChecksum(winDivert)
 
