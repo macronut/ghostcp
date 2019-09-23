@@ -44,12 +44,7 @@ func TCPlookup(request []byte, address string) ([]byte, error) {
 	binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
 	copy(data[2:], request)
 
-	_, err = server.Write(data[:20])
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = server.Write(data[20 : len(request)+2])
+	_, err = server.Write(data[:len(request)+2])
 	if err != nil {
 		return nil, err
 	}
@@ -410,6 +405,7 @@ func DOTDaemon() {
 	defer winDivert.Close()
 
 	rawbuf := make([]byte, 1500)
+	prefix_rawbuf := make([]byte, 1500)
 
 	for {
 		packet, err := winDivert.Recv()
@@ -439,7 +435,36 @@ func DOTDaemon() {
 			return
 		}
 
-		time.Sleep(time.Microsecond * 10)
+		cut_offset := 20
+		total_cut_offset := ipheadlen + tcpheadlen + cut_offset
+
+		copy(prefix_rawbuf, packet.Raw[:total_cut_offset])
+		binary.BigEndian.PutUint16(prefix_rawbuf[2:], uint16(total_cut_offset))
+		prefix_packet := *packet
+		prefix_packet.Raw = prefix_rawbuf[:total_cut_offset]
+		prefix_packet.PacketLen = uint(total_cut_offset)
+		prefix_packet.CalcNewChecksum(winDivert)
+		_, err = winDivert.Send(&prefix_packet)
+		if err != nil {
+			errorPrintln(err)
+			return
+		}
+
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			errorPrintln(err)
+			return
+		}
+
+		seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		copy(rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
+		totallen := uint16(packet.PacketLen) - uint16(cut_offset)
+		binary.BigEndian.PutUint16(rawbuf[2:], totallen)
+		binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum+uint32(cut_offset))
+		packet.Raw = rawbuf[:totallen]
+		packet.PacketLen = uint(totallen)
+		packet.CalcNewChecksum(winDivert)
 
 		_, err = winDivert.Send(packet)
 		if err != nil {
