@@ -1,12 +1,12 @@
 server=8.8.8.8:53
 #local-dns
-ttl=12
+#ttl=12
 mss=512
 
 #LEVEL2
-.wikipedia.org=208.80.154.224
-.m.wikipedia.org=208.80.154.224
-upload.wikimedia.org=208.80.153.240
+.wikipedia.org=198.35.26.96,208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
+.m.wikipedia.org=198.35.26.96,208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
+upload.wikimedia.org=198.35.26.112,208.80.153.240,208.80.154.240,91.198.174.208,103.102.166.240
 .wikimedia.org
 steamcommunity.com
 .steamcommunity.com
@@ -77,7 +77,7 @@ google.com=216.58.204.168
 .google.com=216.58.204.168
 .google.com.hk=216.58.204.168
 .googleapis.com=216.58.204.168
-.googleusercontent.com=173.194.79.188
+.googleusercontent.com=108.177.127.133
 .ajax.googleapis.com=216.58.204.168
 .googletagmanager.com=216.58.204.168
 .youtube.com=216.58.204.168
