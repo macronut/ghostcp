@@ -20,9 +20,11 @@ import (
 )
 
 type Config struct {
-	Level   uint16
-	ANCount uint16
-	Answers []byte
+	Level    uint16
+	ANCount4 uint16
+	ANCount6 uint16
+	Answers4 []byte
+	Answers6 []byte
 }
 
 var DomainMap map[string]Config
@@ -32,6 +34,7 @@ var TTL int = 0
 var MSS int = 1024
 var LocalDNS bool = false
 var ServiceMode bool = true
+var IPv6Enable = false
 var LogLevel = 0
 
 func TCPlookup(request []byte, address string) ([]byte, error) {
@@ -116,7 +119,7 @@ func domainLookup(qname string) Config {
 	for i := 0; i < 2; i++ {
 		off := strings.Index(qname[offset:], ".")
 		if off == -1 {
-			return Config{0, 0, nil}
+			return Config{0, 0, 0, nil, nil}
 		}
 		offset += off
 		config, ok = DomainMap[qname[offset:]]
@@ -126,7 +129,7 @@ func domainLookup(qname string) Config {
 		offset++
 	}
 
-	return Config{0, 0, nil}
+	return Config{0, 0, 0, nil, nil}
 }
 
 func getAnswers(answers []byte, count int) []string {
@@ -187,22 +190,46 @@ func getAnswers(answers []byte, count int) []string {
 	return ips
 }
 
-func packAnswers(ips []string) []byte {
-	count := len(ips)
-	answers := make([]byte, 16*count)
-	length := 0
+func packAnswers(ips []string, qtype int) (int, []byte) {
+	totalLen := 0
+	count := 0
 	for _, ip := range ips {
 		ip4 := net.ParseIP(ip).To4()
-		if ip4 != nil {
-			answer := []byte{0xC0, 0x0C, 0x00, 0x01,
-				0x00, 0x01, 0x00, 0x00, 0x0E, 0x10, 0x00, 0x04,
-				ip4[0], ip4[1], ip4[2], ip4[3]}
-			copy(answers[length:], answer)
-			length += 16
+		if ip4 != nil && qtype == 1 {
+			count++
+			totalLen += 16
+		} else if qtype == 28 {
+			count++
+			totalLen += 28
 		}
 	}
 
-	return answers
+	answers := make([]byte, totalLen)
+	length := 0
+	for _, strIP := range ips {
+		ip := net.ParseIP(strIP)
+		ip4 := ip.To4()
+		if ip4 != nil {
+			if qtype == 1 {
+				answer := []byte{0xC0, 0x0C, 0x00, 1,
+					0x00, 0x01, 0x00, 0x00, 0x0E, 0x10, 0x00, 0x04,
+					ip4[0], ip4[1], ip4[2], ip4[3]}
+				copy(answers[length:], answer)
+				length += 16
+			}
+		} else {
+			if qtype == 28 {
+				answer := []byte{0xC0, 0x0C, 0x00, 28,
+					0x00, 0x01, 0x00, 0x00, 0x0E, 0x10, 0x00, 0x10}
+				copy(answers[length:], answer)
+				length += 12
+				copy(answers[length:], ip)
+				length += 16
+			}
+		}
+	}
+
+	return count, answers
 }
 
 func DNSDaemon() {
@@ -210,14 +237,18 @@ func DNSDaemon() {
 	cmd := exec.Command("ipconfig", arg...)
 	d, err := cmd.CombinedOutput()
 	if err != nil {
-		errorPrintln(string(d), err)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(string(d), err)
+		}
 		return
 	}
 
 	filter := "outbound and udp.DstPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
-		errorPrintln(err, filter)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err, filter)
+		}
 		return
 	}
 	defer winDivert.Close()
@@ -226,7 +257,9 @@ func DNSDaemon() {
 	for {
 		packet, err := winDivert.Recv()
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			continue
 		}
 
@@ -247,7 +280,31 @@ func DNSDaemon() {
 
 		config := domainLookup(qname)
 		if config.Level > 0 {
-			if qtype == 28 {
+			var anCount uint16 = 0
+			var answers []byte = nil
+
+			var noRecord bool
+			if !IPv6Enable && qtype == 28 {
+				noRecord = true
+			} else {
+				if qtype == 1 {
+					if config.ANCount6 > 0 && config.ANCount4 == 0 {
+						noRecord = true
+					} else {
+						answers = config.Answers4
+						anCount = config.ANCount4
+					}
+				} else if qtype == 28 {
+					if config.ANCount4 > 0 && config.ANCount6 == 0 {
+						noRecord = true
+					} else {
+						answers = config.Answers6
+						anCount = config.ANCount6
+					}
+				}
+			}
+
+			if noRecord {
 				request := packet.Raw[ipheadlen+udpheadlen:]
 				udpsize := len(request) + 8
 
@@ -278,11 +335,13 @@ func DNSDaemon() {
 				packet.PacketLen = uint(packetsize)
 				packet.Raw = rawbuf[:packetsize]
 				packet.CalcNewChecksum(winDivert)
+
+				_, err = winDivert.Send(packet)
 			} else {
-				if config.ANCount > 0 {
+				if anCount > 0 {
 					logPrintln(qname)
 					request := packet.Raw[ipheadlen+udpheadlen:]
-					udpsize := len(request) + len(config.Answers) + 8
+					udpsize := len(request) + len(answers) + 8
 
 					var packetsize int
 					if ipv6 {
@@ -306,44 +365,53 @@ func DNSDaemon() {
 					copy(rawbuf[ipheadlen+8:], request)
 					rawbuf[ipheadlen+10] = 0x81
 					rawbuf[ipheadlen+11] = 0x80
-					binary.BigEndian.PutUint16(rawbuf[ipheadlen+14:], config.ANCount)
-					copy(rawbuf[ipheadlen+8+len(request):], config.Answers)
+					binary.BigEndian.PutUint16(rawbuf[ipheadlen+14:], anCount)
+					copy(rawbuf[ipheadlen+8+len(request):], answers)
 
 					packet.PacketLen = uint(packetsize)
 					packet.Raw = rawbuf[:packetsize]
 					packet.CalcNewChecksum(winDivert)
+
+					_, err = winDivert.Send(packet)
 				} else if !LocalDNS {
 					logPrintln(qname, config.Level)
-					response, err := TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
-					if err != nil {
-						errorPrintln(err)
-						continue
-					}
+					go func(level int) {
+						response, err := TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
+						if err != nil {
+							if LogLevel > 1 || !ServiceMode {
+								log.Println(err)
+							}
+							return
+						}
 
-					count := int(binary.BigEndian.Uint16(response[6:8]))
-					ips := getAnswers(response[off:], count)
-					for _, ip := range ips {
-						IPMap[ip] = int(config.Level)
-					}
+						count := int(binary.BigEndian.Uint16(response[6:8]))
+						ips := getAnswers(response[off:], count)
+						for _, ip := range ips {
+							IPMap[ip] = int(level)
+						}
 
-					copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
-					packetsize := 28 + len(response)
-					binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
-					copy(rawbuf[12:], packet.Raw[16:20])
-					copy(rawbuf[16:], packet.Raw[12:16])
-					copy(rawbuf[20:], packet.Raw[22:24])
-					copy(rawbuf[22:], packet.Raw[20:22])
-					binary.BigEndian.PutUint16(rawbuf[24:], uint16(len(response)+8))
-					copy(rawbuf[28:], response)
+						rawbuf := make([]byte, 1500)
+						copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
+						packetsize := 28 + len(response)
+						binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
+						copy(rawbuf[12:], packet.Raw[16:20])
+						copy(rawbuf[16:], packet.Raw[12:16])
+						copy(rawbuf[20:], packet.Raw[22:24])
+						copy(rawbuf[22:], packet.Raw[20:22])
+						binary.BigEndian.PutUint16(rawbuf[24:], uint16(len(response)+8))
+						copy(rawbuf[28:], response)
 
-					packet.PacketLen = uint(packetsize)
-					packet.Raw = rawbuf[:packetsize]
-					packet.CalcNewChecksum(winDivert)
+						packet.PacketLen = uint(packetsize)
+						packet.Raw = rawbuf[:packetsize]
+						packet.CalcNewChecksum(winDivert)
+
+						_, err = winDivert.Send(packet)
+					}(int(config.Level))
 				}
 			}
+		} else {
+			_, err = winDivert.Send(packet)
 		}
-
-		_, err = winDivert.Send(packet)
 	}
 }
 
@@ -351,7 +419,9 @@ func DNSRecvDaemon() {
 	filter := "((outbound and loopback) or inbound) and udp.SrcPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
-		errorPrintln(err, filter)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err, filter)
+		}
 		return
 	}
 	defer winDivert.Close()
@@ -359,7 +429,9 @@ func DNSRecvDaemon() {
 	for {
 		packet, err := winDivert.Recv()
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 1 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
@@ -399,7 +471,9 @@ func DOTDaemon() {
 	filter := "tcp.Psh and tcp.DstPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
-		errorPrintln(err, filter)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err, filter)
+		}
 		return
 	}
 	defer winDivert.Close()
@@ -410,17 +484,30 @@ func DOTDaemon() {
 	for {
 		packet, err := winDivert.Recv()
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
-		ipheadlen := int(packet.Raw[0]&0xF) * 4
+		ipv6 := packet.Raw[0]>>4 == 6
+
+		var ipheadlen int
+		if ipv6 {
+			ipheadlen = 40
+		} else {
+			ipheadlen = int(packet.Raw[0]&0xF) * 4
+		}
 		tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
 		fake_packet := *packet
 		if TTL > 0 {
 			copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-			rawbuf[8] = byte(TTL)
+			if ipv6 {
+				rawbuf[7] = byte(TTL)
+			} else {
+				rawbuf[8] = byte(TTL)
+			}
 		} else {
 			copy(rawbuf, packet.Raw[:ipheadlen+20])
 			copy(rawbuf[ipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
@@ -431,7 +518,9 @@ func DOTDaemon() {
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
@@ -446,13 +535,17 @@ func DOTDaemon() {
 		prefix_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&prefix_packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
@@ -468,7 +561,9 @@ func DOTDaemon() {
 
 		_, err = winDivert.Send(packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 	}
@@ -478,7 +573,9 @@ func HTTPDaemon() {
 	filter := "tcp.Psh and tcp.DstPort == 80"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
-		errorPrintln(err, filter)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err, filter)
+		}
 		return
 	}
 	defer winDivert.Close()
@@ -488,7 +585,9 @@ func HTTPDaemon() {
 	for {
 		packet, err := winDivert.Recv()
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
@@ -496,7 +595,14 @@ func HTTPDaemon() {
 
 		if ok {
 			if level > 1 {
-				ipheadlen := int(packet.Raw[0]&0xF) * 4
+				ipv6 := packet.Raw[0]>>4 == 6
+
+				var ipheadlen int
+				if ipv6 {
+					ipheadlen = 40
+				} else {
+					ipheadlen = int(packet.Raw[0]&0xF) * 4
+				}
 				tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
 				fake_packet := *packet
@@ -513,13 +619,17 @@ func HTTPDaemon() {
 
 				_, err = winDivert.Send(&fake_packet)
 				if err != nil {
-					errorPrintln(err)
+					if LogLevel > 0 || !ServiceMode {
+						log.Println(err)
+					}
 					return
 				}
 
 				_, err = winDivert.Send(&fake_packet)
 				if err != nil {
-					errorPrintln(err)
+					if LogLevel > 0 || !ServiceMode {
+						log.Println(err)
+					}
 					return
 				}
 			}
@@ -529,7 +639,9 @@ func HTTPDaemon() {
 
 		_, err = winDivert.Send(packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 	}
@@ -575,7 +687,9 @@ func hello(SrcPort int, TTL int) {
 	filter := "tcp.Psh and tcp.SrcPort == " + strconv.Itoa(SrcPort)
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
-		errorPrintln(err, filter)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err, filter)
+		}
 		return
 	}
 	defer winDivert.Close()
@@ -584,7 +698,6 @@ func hello(SrcPort int, TTL int) {
 	go func() {
 		packet, err := winDivert.Recv()
 		if err != nil {
-			errorPrintln(err)
 			return
 		}
 
@@ -599,7 +712,14 @@ func hello(SrcPort int, TTL int) {
 		return
 	}
 
-	ipheadlen := int(packet.Raw[0]&0xF) * 4
+	ipv6 := packet.Raw[0]>>4 == 6
+
+	var ipheadlen int
+	if ipv6 {
+		ipheadlen = 40
+	} else {
+		ipheadlen = int(packet.Raw[0]&0xF) * 4
+	}
 	tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 	sni_offset, sni_length := getSNI(packet.Raw[ipheadlen+tcpheadlen:])
 
@@ -608,7 +728,11 @@ func hello(SrcPort int, TTL int) {
 		fake_packet := *packet
 		if TTL > 0 {
 			copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-			rawbuf[8] = byte(TTL)
+			if ipv6 {
+				rawbuf[7] = byte(TTL)
+			} else {
+				rawbuf[8] = byte(TTL)
+			}
 		} else {
 			copy(rawbuf, packet.Raw[:ipheadlen+20])
 			copy(rawbuf[ipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
@@ -619,7 +743,9 @@ func hello(SrcPort int, TTL int) {
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
@@ -628,20 +754,28 @@ func hello(SrcPort int, TTL int) {
 
 		prefix_rawbuf := make([]byte, 1500)
 		copy(prefix_rawbuf, packet.Raw[:total_cut_offset])
-		binary.BigEndian.PutUint16(prefix_rawbuf[2:], uint16(total_cut_offset))
+		if ipv6 {
+			binary.BigEndian.PutUint16(prefix_rawbuf[4:], uint16(total_cut_offset-ipheadlen))
+		} else {
+			binary.BigEndian.PutUint16(prefix_rawbuf[2:], uint16(total_cut_offset))
+		}
 		prefix_packet := *packet
 		prefix_packet.Raw = prefix_rawbuf[:total_cut_offset]
 		prefix_packet.PacketLen = uint(total_cut_offset)
 		prefix_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&prefix_packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
@@ -649,7 +783,11 @@ func hello(SrcPort int, TTL int) {
 		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
 		copy(rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
 		totallen := uint16(packet.PacketLen) - uint16(sni_cut_offset)
-		binary.BigEndian.PutUint16(rawbuf[2:], totallen)
+		if ipv6 {
+			binary.BigEndian.PutUint16(rawbuf[4:], totallen-uint16(ipheadlen))
+		} else {
+			binary.BigEndian.PutUint16(rawbuf[2:], totallen)
+		}
 		binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum+uint32(sni_cut_offset))
 		packet.Raw = rawbuf[:totallen]
 		packet.PacketLen = uint(totallen)
@@ -658,7 +796,9 @@ func hello(SrcPort int, TTL int) {
 
 	_, err = winDivert.Send(packet)
 	if err != nil {
-		errorPrintln(err)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err)
+		}
 		return
 	}
 }
@@ -707,21 +847,21 @@ func loadConfig() error {
 					} else if keys[0] == "ttl" {
 						TTL, err = strconv.Atoi(keys[1])
 						if err != nil {
-							errorPrintln(string(line), err)
+							log.Println(string(line), err)
 							return err
 						}
 						logPrintln(string(line))
 					} else if keys[0] == "mss" {
 						MSS, err = strconv.Atoi(keys[1])
 						if err != nil {
-							errorPrintln(string(line), err)
+							log.Println(string(line), err)
 							return err
 						}
 						logPrintln(string(line))
 					} else if keys[0] == "log" {
 						LogLevel, err = strconv.Atoi(keys[1])
 						if err != nil {
-							errorPrintln(string(line), err)
+							log.Println(string(line), err)
 							return err
 						}
 					} else {
@@ -729,14 +869,18 @@ func loadConfig() error {
 						for _, ip := range ips {
 							IPMap[ip] = level
 						}
-						DomainMap[keys[0]] = Config{uint16(level), uint16(len(ips)), packAnswers(ips)}
+						count4, answer4 := packAnswers(ips, 1)
+						count6, answer6 := packAnswers(ips, 28)
+						DomainMap[keys[0]] = Config{uint16(level), uint16(count4), uint16(count6), answer4, answer6}
 					}
 				} else {
 					if keys[0] == "local-dns" {
 						LocalDNS = true
 						logPrintln("local-dns")
+					} else if keys[0] == "ipv6" {
+						IPv6Enable = true
 					} else {
-						DomainMap[keys[0]] = Config{uint16(level), 0, nil}
+						DomainMap[keys[0]] = Config{uint16(level), 0, 0, nil, nil}
 					}
 				}
 			}
@@ -750,12 +894,6 @@ var Logger *log.Logger
 
 func logPrintln(v ...interface{}) {
 	if LogLevel > 1 || !ServiceMode {
-		log.Println(v)
-	}
-}
-
-func errorPrintln(v ...interface{}) {
-	if LogLevel > 0 || !ServiceMode {
 		log.Println(v)
 	}
 }
@@ -778,14 +916,18 @@ func StartService() {
 
 	err := loadConfig()
 	if err != nil {
-		errorPrintln(err)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err)
+		}
 		return
 	}
 
 	filter := "outbound and !loopback and tcp.Syn == 1 and tcp.Ack == 0 and tcp.DstPort == 443"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
-		errorPrintln(err, filter)
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err, filter)
+		}
 		return
 	}
 	defer winDivert.Close()
@@ -802,14 +944,23 @@ func StartService() {
 	for {
 		packet, err := winDivert.Recv()
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 
 		level, ok := IPMap[packet.DstIP().String()]
 
 		if ok {
-			ipheadlen := int(packet.Raw[0]&0xF) * 4
+			ipv6 := packet.Raw[0]>>4 == 6
+
+			var ipheadlen int
+			if ipv6 {
+				ipheadlen = 40
+			} else {
+				ipheadlen = int(packet.Raw[0]&0xF) * 4
+			}
 
 			if level > 2 {
 				if len(packet.Raw) < ipheadlen+24 {
@@ -833,7 +984,9 @@ func StartService() {
 
 		_, err = winDivert.Send(packet)
 		if err != nil {
-			errorPrintln(err)
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
 			return
 		}
 	}
@@ -844,7 +997,7 @@ func StopService() {
 	cmd := exec.Command("ipconfig", arg...)
 	d, err := cmd.CombinedOutput()
 	if err != nil {
-		errorPrintln(string(d), err)
+		log.Println(string(d), err)
 	}
 
 	os.Exit(0)
