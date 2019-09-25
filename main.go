@@ -803,6 +803,107 @@ func hello(SrcPort int, TTL int) {
 	}
 }
 
+func getMyIPv6() net.IP {
+	s, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	for _, a := range s {
+		strIP := strings.SplitN(a.String(), "/", 2)
+		if strIP[1] == "128" && strIP[0] != "::1" {
+			ip := net.ParseIP(strIP[0])
+			ip4 := ip.To4()
+			if ip4 == nil {
+				return ip
+			}
+		}
+	}
+	return nil
+}
+
+func NAT64(ipv6 net.IP, ipv4 net.IP, level int) {
+	copy(ipv6[12:], ipv4[:4])
+	filter := "!loopback and ((outbound and ip.DstAddr=" + ipv4.String() + ") or (inbound and ipv6.SrcAddr=" + ipv6.String() + "))"
+	winDivert, err := godivert.NewWinDivertHandle(filter)
+	if err != nil {
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err, filter)
+		}
+		return
+	}
+	defer winDivert.Close()
+
+	myIPv6 := getMyIPv6()
+	if myIPv6 == nil {
+		return
+	}
+
+	rawbuf := make([]byte, 1500)
+	srcIP := make([]byte, 4)
+
+	for {
+		packet, err := winDivert.Recv()
+		if err != nil {
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
+			return
+		}
+
+		ipVer := packet.Raw[0] >> 4
+
+		if ipVer == 4 {
+			ipheadlen := int(packet.Raw[0]&0xF) * 4
+			payloadLen := int(packet.PacketLen) - ipheadlen
+
+			copy(srcIP, packet.Raw[12:16])
+
+			copy(rawbuf, []byte{0x60, 0x00, 0x00, 0x00})
+			binary.BigEndian.PutUint16(rawbuf[4:], uint16(payloadLen))
+			rawbuf[6] = packet.Raw[9]
+			rawbuf[7] = packet.Raw[8]
+			copy(rawbuf[8:], myIPv6[:16])
+			copy(rawbuf[24:], ipv6[:16])
+			copy(rawbuf[40:], packet.Raw[ipheadlen:])
+
+			packet6 := *packet
+			packet6.Raw = rawbuf[:40+payloadLen]
+			packet6.PacketLen = uint(payloadLen + 40)
+			packet6.CalcNewChecksum(winDivert)
+
+			_, err = winDivert.Send(&packet6)
+		} else if ipVer == 6 {
+			ipheadlen := 40
+			payloadLen := int(packet.PacketLen) - ipheadlen
+
+			copy(rawbuf, []byte{0x45, 0x00})
+			binary.BigEndian.PutUint16(rawbuf[2:], uint16(20+payloadLen))
+			copy(rawbuf[4:], []byte{0x00, 0x00})
+			copy(rawbuf[6:], []byte{0x40, 0x00})
+			rawbuf[8] = packet.Raw[7]
+			rawbuf[9] = packet.Raw[6]
+			copy(rawbuf[10:], []byte{0x00, 0x00})
+			copy(rawbuf[12:], ipv4)
+			copy(rawbuf[16:], srcIP)
+			copy(rawbuf[20:], packet.Raw[ipheadlen:])
+
+			packet4 := *packet
+			packet4.Raw = rawbuf[:20+payloadLen]
+			packet4.PacketLen = uint(20 + payloadLen)
+			packet4.CalcNewChecksum(winDivert)
+
+			_, err = winDivert.Send(&packet4)
+		}
+
+		if err != nil {
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
+			return
+		}
+	}
+}
+
 func loadConfig() error {
 	DomainMap = make(map[string]Config)
 	IPMap = make(map[string]int)
@@ -865,13 +966,22 @@ func loadConfig() error {
 							return err
 						}
 					} else {
-						ips := strings.Split(keys[1], ",")
-						for _, ip := range ips {
-							IPMap[ip] = level
+						ip := net.ParseIP(keys[0])
+						if ip == nil {
+							ips := strings.Split(keys[1], ",")
+							for _, ip := range ips {
+								IPMap[ip] = level
+							}
+							count4, answer4 := packAnswers(ips, 1)
+							count6, answer6 := packAnswers(ips, 28)
+							DomainMap[keys[0]] = Config{uint16(level), uint16(count4), uint16(count6), answer4, answer6}
+						} else {
+							prefix := net.ParseIP(keys[1])
+							ip4 := ip.To4()
+							if ip4 != nil {
+								go NAT64(prefix, ip4, level)
+							}
 						}
-						count4, answer4 := packAnswers(ips, 1)
-						count6, answer6 := packAnswers(ips, 28)
-						DomainMap[keys[0]] = Config{uint16(level), uint16(count4), uint16(count6), answer4, answer6}
 					}
 				} else {
 					if keys[0] == "local-dns" {
