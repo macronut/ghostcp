@@ -29,8 +29,10 @@ type Config struct {
 
 var DomainMap map[string]Config
 var IPMap map[string]int
-var DNS string
+var DNS string = ""
+var DNS64 string = ""
 var TTL int = 0
+var MAXTTL int = 0
 var MSS int = 1024
 var LocalDNS bool = false
 var ServiceMode bool = true
@@ -43,7 +45,7 @@ func TCPlookup(request []byte, address string) ([]byte, error) {
 		return nil, err
 	}
 	defer server.Close()
-	data := make([]byte, 4096)
+	data := make([]byte, 1024)
 	binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
 	copy(data[2:], request)
 
@@ -71,10 +73,95 @@ func TCPlookup(request []byte, address string) ([]byte, error) {
 	return nil, nil
 }
 
+func TCPlookupDNS64(request []byte, address string, offset int, prefix []byte) ([]byte, error) {
+	response6 := make([]byte, 1024)
+	offset6 := offset
+	offset4 := offset
+
+	binary.BigEndian.PutUint16(request[offset-4:offset-2], 1)
+	response, err := TCPlookup(request, address)
+	if err != nil {
+		return nil, err
+	}
+
+	copy(response6, response[:offset])
+	binary.BigEndian.PutUint16(response6[offset-4:offset-2], 28)
+
+	count := int(binary.BigEndian.Uint16(response[6:8]))
+	for i := 0; i < count; i++ {
+		for {
+			if offset >= len(response) {
+				log.Println(offset)
+				return nil, nil
+			}
+			length := response[offset]
+			offset++
+			if length == 0 {
+				break
+			}
+			if length < 63 {
+				offset += int(length)
+				if offset+2 > len(response) {
+					log.Println(offset)
+					return nil, nil
+				}
+			} else {
+				offset++
+				break
+			}
+		}
+		if offset+2 > len(response) {
+			log.Println(offset)
+			return nil, nil
+		}
+
+		copy(response6[offset6:], response[offset4:offset])
+		offset6 += offset - offset4
+		offset4 = offset
+
+		AType := binary.BigEndian.Uint16(response[offset : offset+2])
+		offset += 8
+		if offset+2 > len(response) {
+			log.Println(offset)
+			return nil, nil
+		}
+		DataLength := binary.BigEndian.Uint16(response[offset : offset+2])
+		offset += 2
+
+		offset += int(DataLength)
+		if AType == 1 {
+			if offset > len(response) {
+				log.Println(offset)
+				return nil, nil
+			}
+			binary.BigEndian.PutUint16(response6[offset6:], 28)
+			offset6 += 2
+			offset4 += 2
+			copy(response6[offset6:], response[offset4:offset4+6])
+			offset6 += 6
+			offset4 += 6
+			binary.BigEndian.PutUint16(response6[offset6:], DataLength+12)
+			offset6 += 2
+			offset4 += 2
+
+			copy(response6[offset6:], prefix[:12])
+			offset6 += 12
+			copy(response6[offset6:], response[offset4:offset])
+			offset6 += offset - offset4
+			offset4 = offset
+		} else {
+			copy(response6[offset6:], response[offset4:offset])
+			offset6 += offset - offset4
+			offset4 = offset
+		}
+	}
+
+	return response6[:offset6], nil
+}
+
 func getQName(buf []byte) (string, int, int) {
 	bufflen := len(buf)
 	if bufflen < 13 {
-		logPrintln("sf1")
 		return "", 0, 0
 	}
 	length := buf[12]
@@ -350,17 +437,19 @@ func DNSDaemon() {
 						binary.BigEndian.PutUint16(rawbuf[4:], uint16(udpsize))
 						copy(rawbuf[8:], packet.Raw[24:40])
 						copy(rawbuf[24:], packet.Raw[8:24])
+						copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
+						copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
 					} else {
 						copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
 						packetsize = 20 + udpsize
 						binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
 						copy(rawbuf[12:], packet.Raw[16:20])
 						copy(rawbuf[16:], packet.Raw[12:16])
+						copy(rawbuf[20:], packet.Raw[ipheadlen+2:ipheadlen+4])
+						copy(rawbuf[22:], packet.Raw[ipheadlen:ipheadlen+2])
 						ipheadlen = 20
 					}
 
-					copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
-					copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
 					binary.BigEndian.PutUint16(rawbuf[ipheadlen+4:], uint16(udpsize))
 					copy(rawbuf[ipheadlen+8:], request)
 					rawbuf[ipheadlen+10] = 0x81
@@ -375,12 +464,42 @@ func DNSDaemon() {
 					_, err = winDivert.Send(packet)
 				} else if !LocalDNS {
 					logPrintln(qname, config.Level)
-					go func(level int) {
-						response, err := TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
+					go func(level int, answers6 []byte, offset int) {
+						rawbuf := make([]byte, 1500)
+						if ipv6 {
+							copy(rawbuf, []byte{96, 12, 19, 68, 0, 98, 17, 128})
+							copy(rawbuf[8:], packet.Raw[24:40])
+							copy(rawbuf[24:], packet.Raw[8:24])
+							copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
+							copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
+						} else {
+							copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
+							copy(rawbuf[12:], packet.Raw[16:20])
+							copy(rawbuf[16:], packet.Raw[12:16])
+							copy(rawbuf[20:], packet.Raw[ipheadlen+2:ipheadlen+4])
+							copy(rawbuf[22:], packet.Raw[ipheadlen:ipheadlen+2])
+							ipheadlen = 20
+						}
+
+						var response []byte
+						var err error
+						if qtype != 28 || answers6 == nil {
+							response, err = TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
+						} else {
+							if DNS64 == "" {
+								response, err = TCPlookupDNS64(packet.Raw[ipheadlen+udpheadlen:], DNS, offset, answers6)
+							} else {
+								response, err = TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS64)
+								//response, err = TCPlookupDNS64(packet.Raw[ipheadlen+udpheadlen:], DNS64, offset, answers6)
+							}
+						}
 						if err != nil {
 							if LogLevel > 1 || !ServiceMode {
 								log.Println(err)
 							}
+							return
+						}
+						if response == nil {
 							return
 						}
 
@@ -390,23 +509,25 @@ func DNSDaemon() {
 							IPMap[ip] = int(level)
 						}
 
-						rawbuf := make([]byte, 1500)
-						copy(rawbuf, []byte{69, 0, 1, 32, 141, 152, 64, 0, 64, 17, 150, 46})
-						packetsize := 28 + len(response)
-						binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
-						copy(rawbuf[12:], packet.Raw[16:20])
-						copy(rawbuf[16:], packet.Raw[12:16])
-						copy(rawbuf[20:], packet.Raw[22:24])
-						copy(rawbuf[22:], packet.Raw[20:22])
-						binary.BigEndian.PutUint16(rawbuf[24:], uint16(len(response)+8))
-						copy(rawbuf[28:], response)
+						udpsize := len(response) + 8
+						var packetsize int
+						if ipv6 {
+							packetsize = 40 + udpsize
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(udpsize))
+						} else {
+							packetsize = 20 + udpsize
+							binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
+						}
+
+						binary.BigEndian.PutUint16(rawbuf[ipheadlen+4:], uint16(udpsize))
+						copy(rawbuf[ipheadlen+8:], response)
 
 						packet.PacketLen = uint(packetsize)
 						packet.Raw = rawbuf[:packetsize]
 						packet.CalcNewChecksum(winDivert)
 
 						_, err = winDivert.Send(packet)
-					}(int(config.Level))
+					}(int(config.Level), config.Answers6, off)
 				}
 			}
 		} else {
@@ -479,7 +600,7 @@ func DOTDaemon() {
 	defer winDivert.Close()
 
 	rawbuf := make([]byte, 1500)
-	prefix_rawbuf := make([]byte, 1500)
+	tmp_rawbuf := make([]byte, 1500)
 
 	for {
 		packet, err := winDivert.Recv()
@@ -487,7 +608,7 @@ func DOTDaemon() {
 			if LogLevel > 0 || !ServiceMode {
 				log.Println(err)
 			}
-			return
+			continue
 		}
 
 		ipv6 := packet.Raw[0]>>4 == 6
@@ -521,16 +642,32 @@ func DOTDaemon() {
 			if LogLevel > 0 || !ServiceMode {
 				log.Println(err)
 			}
-			return
+			continue
 		}
 
 		cut_offset := 20
 		total_cut_offset := ipheadlen + tcpheadlen + cut_offset
+		if total_cut_offset >= len(packet.Raw) {
+			return
+		}
 
-		copy(prefix_rawbuf, packet.Raw[:total_cut_offset])
-		binary.BigEndian.PutUint16(prefix_rawbuf[2:], uint16(total_cut_offset))
+		copy(tmp_rawbuf, packet.Raw[:total_cut_offset])
+		var original_ttl byte
+		if ipv6 {
+			binary.BigEndian.PutUint16(tmp_rawbuf[4:], uint16(total_cut_offset-ipheadlen))
+			if MAXTTL > 0 {
+				original_ttl = tmp_rawbuf[7]
+				tmp_rawbuf[7] = byte(MAXTTL)
+			}
+		} else {
+			binary.BigEndian.PutUint16(tmp_rawbuf[2:], uint16(total_cut_offset))
+			if MAXTTL > 0 {
+				original_ttl = tmp_rawbuf[8]
+				tmp_rawbuf[8] = byte(MAXTTL)
+			}
+		}
 		prefix_packet := *packet
-		prefix_packet.Raw = prefix_rawbuf[:total_cut_offset]
+		prefix_packet.Raw = tmp_rawbuf[:total_cut_offset]
 		prefix_packet.PacketLen = uint(total_cut_offset)
 		prefix_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&prefix_packet)
@@ -538,7 +675,7 @@ func DOTDaemon() {
 			if LogLevel > 0 || !ServiceMode {
 				log.Println(err)
 			}
-			return
+			continue
 		}
 
 		_, err = winDivert.Send(&fake_packet)
@@ -546,16 +683,28 @@ func DOTDaemon() {
 			if LogLevel > 0 || !ServiceMode {
 				log.Println(err)
 			}
-			return
+			continue
 		}
 
 		seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
-		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-		copy(rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
+		copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
 		totallen := uint16(packet.PacketLen) - uint16(cut_offset)
-		binary.BigEndian.PutUint16(rawbuf[2:], totallen)
-		binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum+uint32(cut_offset))
-		packet.Raw = rawbuf[:totallen]
+
+		if ipv6 {
+			binary.BigEndian.PutUint16(tmp_rawbuf[4:], totallen-uint16(ipheadlen))
+			if MAXTTL > 0 {
+				tmp_rawbuf[7] = byte(MAXTTL + 1)
+			}
+		} else {
+			binary.BigEndian.PutUint16(tmp_rawbuf[2:], totallen)
+			if MAXTTL > 0 {
+				tmp_rawbuf[8] = byte(MAXTTL + 1)
+			}
+		}
+
+		binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+uint32(cut_offset))
+		packet.Raw = tmp_rawbuf[:totallen]
 		packet.PacketLen = uint(totallen)
 		packet.CalcNewChecksum(winDivert)
 
@@ -564,7 +713,26 @@ func DOTDaemon() {
 			if LogLevel > 0 || !ServiceMode {
 				log.Println(err)
 			}
-			return
+			continue
+		}
+
+		if MAXTTL > 0 {
+			time.Sleep(time.Microsecond * 20)
+
+			if ipv6 {
+				fake_packet.Raw[7] = original_ttl
+			} else {
+				fake_packet.Raw[8] = original_ttl
+			}
+			fake_packet.CalcNewChecksum(winDivert)
+
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				if LogLevel > 0 || !ServiceMode {
+					log.Println(err)
+				}
+				return
+			}
 		}
 	}
 }
@@ -752,15 +920,25 @@ func hello(SrcPort int, TTL int) {
 		sni_cut_offset := sni_offset + sni_length/2
 		total_cut_offset := ipheadlen + tcpheadlen + sni_cut_offset
 
-		prefix_rawbuf := make([]byte, 1500)
-		copy(prefix_rawbuf, packet.Raw[:total_cut_offset])
+		tmp_rawbuf := make([]byte, 1500)
+		copy(tmp_rawbuf, packet.Raw[:total_cut_offset])
+		var original_ttl byte
 		if ipv6 {
-			binary.BigEndian.PutUint16(prefix_rawbuf[4:], uint16(total_cut_offset-ipheadlen))
+			binary.BigEndian.PutUint16(tmp_rawbuf[4:], uint16(total_cut_offset-ipheadlen))
+			if MAXTTL > 0 {
+				original_ttl = tmp_rawbuf[7]
+				tmp_rawbuf[7] = byte(MAXTTL)
+			}
 		} else {
-			binary.BigEndian.PutUint16(prefix_rawbuf[2:], uint16(total_cut_offset))
+			binary.BigEndian.PutUint16(tmp_rawbuf[2:], uint16(total_cut_offset))
+			if MAXTTL > 0 {
+				original_ttl = tmp_rawbuf[8]
+				tmp_rawbuf[8] = byte(MAXTTL)
+			}
 		}
+
 		prefix_packet := *packet
-		prefix_packet.Raw = prefix_rawbuf[:total_cut_offset]
+		prefix_packet.Raw = tmp_rawbuf[:total_cut_offset]
 		prefix_packet.PacketLen = uint(total_cut_offset)
 		prefix_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&prefix_packet)
@@ -780,26 +958,59 @@ func hello(SrcPort int, TTL int) {
 		}
 
 		seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
-		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-		copy(rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
+		copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
 		totallen := uint16(packet.PacketLen) - uint16(sni_cut_offset)
 		if ipv6 {
-			binary.BigEndian.PutUint16(rawbuf[4:], totallen-uint16(ipheadlen))
+			binary.BigEndian.PutUint16(tmp_rawbuf[4:], totallen-uint16(ipheadlen))
+			if MAXTTL > 0 {
+				tmp_rawbuf[7] = byte(MAXTTL + 1)
+			}
 		} else {
-			binary.BigEndian.PutUint16(rawbuf[2:], totallen)
+			binary.BigEndian.PutUint16(tmp_rawbuf[2:], totallen)
+			if MAXTTL > 0 {
+				tmp_rawbuf[8] = byte(MAXTTL + 1)
+			}
 		}
-		binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum+uint32(sni_cut_offset))
-		packet.Raw = rawbuf[:totallen]
+		binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+uint32(sni_cut_offset))
+		packet.Raw = tmp_rawbuf[:totallen]
 		packet.PacketLen = uint(totallen)
 		packet.CalcNewChecksum(winDivert)
-	}
 
-	_, err = winDivert.Send(packet)
-	if err != nil {
-		if LogLevel > 0 || !ServiceMode {
-			log.Println(err)
+		_, err = winDivert.Send(packet)
+		if err != nil {
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
+			return
 		}
-		return
+
+		if MAXTTL > 0 {
+			time.Sleep(time.Microsecond * 20)
+
+			if ipv6 {
+				fake_packet.Raw[7] = original_ttl
+			} else {
+				fake_packet.Raw[8] = original_ttl
+			}
+			fake_packet.CalcNewChecksum(winDivert)
+
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				if LogLevel > 0 || !ServiceMode {
+					log.Println(err)
+				}
+				return
+			}
+		}
+	} else {
+		_, err = winDivert.Send(packet)
+		if err != nil {
+			if LogLevel > 0 || !ServiceMode {
+				log.Println(err)
+			}
+			return
+		}
 	}
 }
 
@@ -944,7 +1155,9 @@ func loadConfig() error {
 							LocalDNS = true
 							logPrintln("local-dns")
 						}
-
+					} else if keys[0] == "dns64" {
+						DNS64 = keys[1]
+						logPrintln(string(line))
 					} else if keys[0] == "ttl" {
 						TTL, err = strconv.Atoi(keys[1])
 						if err != nil {
@@ -965,16 +1178,30 @@ func loadConfig() error {
 							log.Println(string(line), err)
 							return err
 						}
+					} else if keys[0] == "max-ttl" {
+						MAXTTL, err = strconv.Atoi(keys[1])
+						if err != nil {
+							log.Println(string(line), err)
+							return err
+						}
+						logPrintln(string(line))
 					} else {
 						ip := net.ParseIP(keys[0])
 						if ip == nil {
-							ips := strings.Split(keys[1], ",")
-							for _, ip := range ips {
-								IPMap[ip] = level
+							if strings.HasSuffix(keys[1], "::") {
+								prefix := net.ParseIP(keys[1])
+								if prefix != nil {
+									DomainMap[keys[0]] = Config{uint16(level), 0, 0, nil, prefix}
+								}
+							} else {
+								ips := strings.Split(keys[1], ",")
+								for _, ip := range ips {
+									IPMap[ip] = level
+								}
+								count4, answer4 := packAnswers(ips, 1)
+								count6, answer6 := packAnswers(ips, 28)
+								DomainMap[keys[0]] = Config{uint16(level), uint16(count4), uint16(count6), answer4, answer6}
 							}
-							count4, answer4 := packAnswers(ips, 1)
-							count6, answer6 := packAnswers(ips, 28)
-							DomainMap[keys[0]] = Config{uint16(level), uint16(count4), uint16(count6), answer4, answer6}
 						} else {
 							prefix := net.ParseIP(keys[1])
 							ip4 := ip.To4()
