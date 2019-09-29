@@ -711,8 +711,16 @@ func UDPDaemon(dstPort int) {
 	}
 }
 
-func TCPDaemon(dstPort int) {
-	filter := "outbound and !loopback and (tcp.Syn == 1 or tcp.Psh) and tcp.DstPort == " + strconv.Itoa(dstPort)
+func TCPDaemon(address string) {
+	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
+
+	var filter string
+	if address[0] == ':' {
+		filter = "outbound and !loopback and (tcp.Syn == 1 or tcp.Psh) and tcp.DstPort == " + address[1:]
+	} else {
+		filter = "outbound and !loopback and (tcp.Syn == 1 or tcp.Psh) and tcp.DstPort != 443 and ip.DstAddr = " + tcpAddr.IP.String()
+	}
+
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
 		if LogLevel > 0 || !ServiceMode {
@@ -802,17 +810,14 @@ func TCPDaemon(dstPort int) {
 			tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
 			var host_offset, host_length int
-			switch dstPort {
+			switch tcpAddr.Port {
 			case 53:
 				host_offset = 10
 				host_length = 30
 			case 80:
 				host_offset, host_length = getHost(packet.Raw[ipheadlen+tcpheadlen:])
-			case 443:
-				host_offset, host_length = getSNI(packet.Raw[ipheadlen+tcpheadlen:])
 			default:
-				host_offset = 0
-				host_length = 0
+				host_offset, host_length = getSNI(packet.Raw[ipheadlen+tcpheadlen:])
 			}
 
 			rawbuf := make([]byte, 1500)
@@ -1144,6 +1149,12 @@ func loadConfig() error {
 							} else {
 								ips := strings.Split(keys[1], ",")
 								for _, ip := range ips {
+									/*
+										_, ok := IPMap[ip]
+										if !ok {
+											go TCPDaemon(ip + ":0")
+										}
+									*/
 									IPMap[ip] = IPConfig{option, minTTL, maxTTL, syncMSS}
 								}
 								count4, answer4 := packAnswers(ips, 1)
@@ -1204,12 +1215,12 @@ func StartService() {
 	if LocalDNS {
 		go DNSRecvDaemon()
 	} else {
-		go TCPDaemon(53)
+		go TCPDaemon(DNS)
 	}
 
-	go TCPDaemon(80)
+	go TCPDaemon(":80")
 	go UDPDaemon(443)
-	TCPDaemon(443)
+	TCPDaemon(":443")
 }
 
 func StopService() {
