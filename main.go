@@ -69,7 +69,7 @@ const (
 var Logger *log.Logger
 
 func logPrintln(v ...interface{}) {
-	if LogLevel > 1 || !ServiceMode {
+	if LogLevel > 1 {
 		log.Println(v)
 	}
 }
