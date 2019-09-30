@@ -401,7 +401,7 @@ func DNSDaemon() {
 		}
 
 		config := domainLookup(qname)
-		if config.Option > 0 {
+		if config.Option > 0 || config.Answers4 != nil || config.Answers6 == nil {
 			var anCount uint16 = 0
 			var answers []byte = nil
 
@@ -730,6 +730,7 @@ func TCPDaemon(address string) {
 	}
 	defer winDivert.Close()
 
+	rawbuf := make([]byte, 1500)
 	for {
 		packet, err := winDivert.Recv()
 		if err != nil {
@@ -818,9 +819,11 @@ func TCPDaemon(address string) {
 				host_offset, host_length = getHost(packet.Raw[ipheadlen+tcpheadlen:])
 			default:
 				host_offset, host_length = getSNI(packet.Raw[ipheadlen+tcpheadlen:])
+				if host_length == 0 {
+					PortList6[SrcPort] = IPConfig{0, 0, 0, 0}
+				}
 			}
 
-			rawbuf := make([]byte, 1500)
 			if host_length > 0 {
 				fake_packet := *packet
 				copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
