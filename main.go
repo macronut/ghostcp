@@ -65,10 +65,10 @@ const (
 	TCP_SYN = 0x02
 	TCP_RST = 0x04
 	TCP_PSH = 0x08
-	TCP_URG = 0x10
-	TCP_ECE = 0x20
-	TCP_CWR = 0x40
-	TCP_NS  = 0x80
+	TCP_ACK = 0x10
+	TCP_URG = 0x20
+	TCP_ECE = 0x40
+	TCP_CWR = 0x80
 )
 
 var Logger *log.Logger
@@ -775,11 +775,14 @@ func TCPDaemon(address string) {
 			tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 			dstPort := int(binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:]))
 
-			var host_offset, host_length int
+			host_offset := 0
+			host_length := 0
 			switch dstPort {
 			case 53:
-				host_offset = 10
-				host_length = 30
+				if len(packet.Raw[ipheadlen+tcpheadlen:]) > 21 {
+					host_offset = 20
+					host_length = 1
+				}
 			case 80:
 				host_offset, host_length = getHost(packet.Raw[ipheadlen+tcpheadlen:])
 			case 443:
@@ -788,7 +791,6 @@ func TCPDaemon(address string) {
 					PortList6[SrcPort] = IPConfig{0, 0, 0, 0}
 				}
 			default:
-				host_offset = 0
 				host_length = len(packet.Raw[ipheadlen+tcpheadlen:])
 			}
 
@@ -816,11 +818,17 @@ func TCPDaemon(address string) {
 				}
 
 				if (config.Option & OPT_SYN) != 0 {
+
 					rawbuf[ipheadlen+13] = TCP_SYN
+
 					seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
 					seqNum += 65536
 					binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], seqNum)
-					binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
+					if (config.Option & OPT_ACK) != 0 {
+						rawbuf[ipheadlen+13] |= TCP_ACK
+					} else {
+						binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
+					}
 				}
 
 				fake_packet.Raw = rawbuf[:len(packet.Raw)]
@@ -840,8 +848,8 @@ func TCPDaemon(address string) {
 					}
 				}
 
-				sni_cut_offset := host_offset + host_length/2
-				total_cut_offset := ipheadlen + tcpheadlen + sni_cut_offset
+				host_cut_offset := host_offset + host_length/2
+				total_cut_offset := ipheadlen + tcpheadlen + host_cut_offset
 
 				tmp_rawbuf := make([]byte, 1500)
 				copy(tmp_rawbuf, packet.Raw[:total_cut_offset])
@@ -894,7 +902,7 @@ func TCPDaemon(address string) {
 				seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
 				copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
 				copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
-				totallen := uint16(packet.PacketLen) - uint16(sni_cut_offset)
+				totallen := uint16(packet.PacketLen) - uint16(host_cut_offset)
 				if ipv6 {
 					binary.BigEndian.PutUint16(tmp_rawbuf[4:], totallen-uint16(ipheadlen))
 					if config.MAXTTL > 0 {
@@ -906,7 +914,7 @@ func TCPDaemon(address string) {
 						tmp_rawbuf[8] = config.MAXTTL + 1
 					}
 				}
-				binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+uint32(sni_cut_offset))
+				binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+uint32(host_cut_offset))
 				packet.Raw = tmp_rawbuf[:totallen]
 				packet.PacketLen = uint(totallen)
 				packet.CalcNewChecksum(winDivert)
