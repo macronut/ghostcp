@@ -1,6 +1,6 @@
 #ipv6
 #ttl=12
-#max-ttl=40
+mss=0
 md5=true
 
 server=8.8.8.8:53
@@ -12,10 +12,14 @@ server=8.8.8.8:53
 #Domain=2001:67c:27e4:64::
 
 #LEVEL1
+ttl=0
+mss=0
 md5=false
 
 #LEVEL2
+ttl=12
 md5=true
+mss=0
 
 .wikipedia.org=198.35.26.96,208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
 .m.wikipedia.org=198.35.26.96,208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
@@ -89,12 +93,15 @@ telegram.org=78.129.226.64
 .telegram.org=78.129.226.64
 
 #LEVEL3
-mss=512
+ttl=12
+md5=true
+mss=0
 
 google.com=216.58.204.168
 .google.com=216.58.204.168
 .google.com.hk=216.58.204.168
 .googleapis.com=216.58.204.168
+.gstatic.com=216.58.204.168
 .googleusercontent.com=108.177.127.133
 .ajax.googleapis.com=216.58.204.168
 .googletagmanager.com=216.58.204.168
