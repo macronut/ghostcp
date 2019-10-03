@@ -635,6 +635,10 @@ func getSNI(b []byte) (offset int, length int) {
 	if len(b) < 5 {
 		return 0, 0
 	}
+	Version := binary.BigEndian.Uint16(b[1:3])
+	if (Version & 0xFFF8) != 0x0300 {
+		return 0, 0
+	}
 	Length := binary.BigEndian.Uint16(b[3:5])
 	if len(b) <= int(Length)-5 {
 		return 0, 0
@@ -642,6 +646,9 @@ func getSNI(b []byte) (offset int, length int) {
 	offset = 11 + 32
 	SessionIDLength := b[offset]
 	offset += 1 + int(SessionIDLength)
+	if offset+2 > len(b) {
+		return 0, 0
+	}
 	CipherSuitersLength := binary.BigEndian.Uint16(b[offset : offset+2])
 	offset += 2 + int(CipherSuitersLength)
 	if offset >= len(b) {
@@ -649,9 +656,15 @@ func getSNI(b []byte) (offset int, length int) {
 	}
 	CompressionMethodsLenght := b[offset]
 	offset += 1 + int(CompressionMethodsLenght)
+	if offset+2 > len(b) {
+		return 0, 0
+	}
 	ExtensionsLength := binary.BigEndian.Uint16(b[offset : offset+2])
 	offset += 2
 	ExtensionsEnd := offset + int(ExtensionsLength)
+	if ExtensionsEnd >= len(b) {
+		return 0, 0
+	}
 	for offset < ExtensionsEnd {
 		ExtensionType := binary.BigEndian.Uint16(b[offset : offset+2])
 		offset += 2
@@ -787,8 +800,12 @@ func TCPDaemon(address string) {
 				host_offset, host_length = getHost(packet.Raw[ipheadlen+tcpheadlen:])
 			case 443:
 				host_offset, host_length = getSNI(packet.Raw[ipheadlen+tcpheadlen:])
-				if host_length == 0 && (config.Option&OPT_RST == 0) {
-					PortList6[SrcPort] = IPConfig{0, 0, 0, 0}
+				if config.Option&OPT_RST == 0 {
+					if ipv6 {
+						PortList6[SrcPort] = IPConfig{0, 0, 0, 0}
+					} else {
+						PortList4[SrcPort] = IPConfig{0, 0, 0, 0}
+					}
 				}
 			default:
 				host_length = len(packet.Raw[ipheadlen+tcpheadlen:])
