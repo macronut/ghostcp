@@ -57,7 +57,6 @@ const (
 	OPT_ACK  = 0x08
 	OPT_SYN  = 0x10
 	OPT_CSUM = 0x20
-	OPT_RST  = 0x40
 )
 
 const (
@@ -80,7 +79,7 @@ func logPrintln(v ...interface{}) {
 }
 
 func TCPlookup(request []byte, address string) ([]byte, error) {
-	server, err := net.Dial("tcp", address)
+	server, err := net.DialTimeout("tcp", address, time.Second*5)
 	if err != nil {
 		return nil, err
 	}
@@ -662,7 +661,7 @@ func getSNI(b []byte) (offset int, length int) {
 	ExtensionsLength := binary.BigEndian.Uint16(b[offset : offset+2])
 	offset += 2
 	ExtensionsEnd := offset + int(ExtensionsLength)
-	if ExtensionsEnd >= len(b) {
+	if ExtensionsEnd > len(b) {
 		return 0, 0
 	}
 	for offset < ExtensionsEnd {
@@ -731,10 +730,16 @@ func UDPDaemon(dstPort int) {
 
 func TCPDaemon(address string) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
+	if err != nil {
+		if LogLevel > 0 || !ServiceMode {
+			log.Println(err)
+		}
+		return
+	}
 
 	var filter string
 	if address[0] == ':' {
-		filter = fmt.Sprintf("!loopback and ((outbound and tcp.DstPort == %s and (tcp.Syn or tcp.Psh)) or (inbound and tcp.SrcPort == %s and tcp.Rst))", address[1:], address[1:])
+		filter = fmt.Sprintf("!loopback and outbound and tcp.DstPort == %s and (tcp.Syn or tcp.Psh)", address[1:])
 	} else {
 		filter = fmt.Sprintf("outbound and !loopback and ip.DstAddr = %s and tcp.DstPort == %d and (tcp.Syn or tcp.Psh)", tcpAddr.IP.String(), tcpAddr.Port)
 	}
@@ -800,12 +805,10 @@ func TCPDaemon(address string) {
 				host_offset, host_length = getHost(packet.Raw[ipheadlen+tcpheadlen:])
 			case 443:
 				host_offset, host_length = getSNI(packet.Raw[ipheadlen+tcpheadlen:])
-				if config.Option&OPT_RST == 0 {
-					if ipv6 {
-						PortList6[SrcPort] = IPConfig{0, 0, 0, 0}
-					} else {
-						PortList4[SrcPort] = IPConfig{0, 0, 0, 0}
-					}
+				if ipv6 {
+					PortList6[SrcPort] = IPConfig{0, 0, 0, 0}
+				} else {
+					PortList4[SrcPort] = IPConfig{0, 0, 0, 0}
 				}
 			default:
 				host_length = len(packet.Raw[ipheadlen+tcpheadlen:])
@@ -1012,28 +1015,6 @@ func TCPDaemon(address string) {
 				}
 				continue
 			}
-		} else if (packet.Raw[ipheadlen+13] & TCP_RST) != 0 {
-			dstPort := int(binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:]))
-			var config IPConfig
-			if ipv6 {
-				config = PortList6[dstPort]
-			} else {
-				config = PortList4[dstPort]
-			}
-
-			if (config.Option & OPT_RST) == 0 {
-				_, err = winDivert.Send(packet)
-				if err != nil {
-					if LogLevel > 0 || !ServiceMode {
-						log.Println(err)
-					}
-				}
-				continue
-			}
-
-			if LogLevel > 0 {
-				log.Println("RST Recv")
-			}
 		} else {
 			_, err = winDivert.Send(packet)
 			if err != nil {
@@ -1180,12 +1161,7 @@ func loadConfig() error {
 							return err
 						}
 						IPMap[tcpAddr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
-
 						logPrintln(string(line))
-						if DNS == "127.0.0.1:53" || DNS == "[::1]:53" {
-							LocalDNS = true
-							logPrintln("local-dns")
-						}
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
 						logPrintln(string(line))
@@ -1241,13 +1217,6 @@ func loadConfig() error {
 							option |= OPT_CSUM
 						} else {
 							option &= ^uint32(OPT_CSUM)
-						}
-						logPrintln(string(line))
-					} else if keys[0] == "reset" {
-						if keys[1] == "true" {
-							option |= OPT_RST
-						} else {
-							option &= ^uint32(OPT_RST)
 						}
 						logPrintln(string(line))
 					} else if keys[0] == "max-ttl" {
