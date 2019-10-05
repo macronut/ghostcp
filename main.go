@@ -57,6 +57,7 @@ const (
 	OPT_ACK  = 0x08
 	OPT_SYN  = 0x10
 	OPT_CSUM = 0x20
+	OPT_TFO  = 0x30
 )
 
 const (
@@ -979,17 +980,22 @@ func TCPDaemon(address string) {
 
 			if ok {
 				if config.Option != 0 {
-					if (config.Option & OPT_MSS) != 0 {
-						if len(packet.Raw) < ipheadlen+24 {
-							logPrintln(packet)
-							return
-						}
+					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
-						tcpOption := packet.Raw[ipheadlen+20]
-						if tcpOption == 2 {
-							binary.BigEndian.PutUint16(packet.Raw[ipheadlen+22:], config.MSS)
-							packet.CalcNewChecksum(winDivert)
+					if (config.Option & OPT_MSS) != 0 {
+						if tcpheadlen >= 24 {
+							tcpOption := packet.Raw[ipheadlen+20]
+							if tcpOption == 2 {
+								binary.BigEndian.PutUint16(packet.Raw[ipheadlen+22:], config.MSS)
+								packet.CalcNewChecksum(winDivert)
+							}
 						}
+					}
+
+					if (config.Option & OPT_TFO) != 0 {
+						packet.Raw[ipheadlen+tcpheadlen-4] = 34
+						packet.Raw[ipheadlen+tcpheadlen-3] = 2
+						packet.CalcNewChecksum(winDivert)
 					}
 
 					if ipv6 {
@@ -1217,6 +1223,13 @@ func loadConfig() error {
 							option |= OPT_CSUM
 						} else {
 							option &= ^uint32(OPT_CSUM)
+						}
+						logPrintln(string(line))
+					} else if keys[0] == "tcpfastopen" {
+						if keys[1] == "true" {
+							option |= OPT_TFO
+						} else {
+							option &= ^uint32(OPT_TFO)
 						}
 						logPrintln(string(line))
 					} else if keys[0] == "max-ttl" {
