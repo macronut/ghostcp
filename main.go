@@ -68,7 +68,7 @@ const (
 	OPT_ACK  = 0x08
 	OPT_SYN  = 0x10
 	OPT_CSUM = 0x20
-	OPT_TFO  = 0x30
+	OPT_TFO  = 0x40
 )
 
 const (
@@ -795,7 +795,16 @@ func TFODaemon(srcAddr string, srcPort int) {
 		dstPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:])
 
 		if (packet.Raw[ipheadlen+13] & TCP_SYN) != 0 {
+			var info *ConnInfo
+			if ipv6 {
+				info = PortList6[dstPort]
+			} else {
+				info = PortList4[dstPort]
+			}
+
+			info.AckNum = binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 			tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
+
 			optStart := ipheadlen + 20
 			option := packet.Raw[optStart : ipheadlen+tcpheadlen]
 			cookies := getCookies(option)
@@ -804,65 +813,10 @@ func TFODaemon(srcAddr string, srcPort int) {
 				copy(tmp_option, option)
 				OptionMap[srcAddr] = tmp_option
 
-				rstPacket := *packet
-				copy(rawbuf, packet.Raw[:ipheadlen+20])
-				if ipv6 {
-					rawbuf[7] = 64
-					copy(rawbuf[8:], packet.Raw[24:40])
-					copy(rawbuf[24:], packet.Raw[8:24])
-				} else {
-					rawbuf[8] = 64
-					copy(rawbuf[12:], packet.Raw[16:20])
-					copy(rawbuf[16:], packet.Raw[12:16])
-				}
-				copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
-				copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
-				copy(rawbuf[ipheadlen+4:], packet.Raw[ipheadlen+8:ipheadlen+12])
-				copy(rawbuf[ipheadlen+8:], packet.Raw[ipheadlen+4:ipheadlen+8])
-
-				rawbuf[ipheadlen+12] = 5 << 4
-				rawbuf[ipheadlen+13] = TCP_RST
-				rstPacket.PacketLen = uint(ipheadlen + 20)
-				if ipv6 {
-					binary.BigEndian.PutUint16(rawbuf[4:], uint16(rstPacket.PacketLen))
-				} else {
-					binary.BigEndian.PutUint16(rawbuf[2:], uint16(rstPacket.PacketLen))
-				}
-				rstPacket.Raw = rawbuf[:rstPacket.PacketLen]
-				rstPacket.CalcNewChecksum(winDivert)
-
-				_, err = winDivert.Send(&rstPacket)
-				if err != nil {
-					if LogLevel > 0 || !ServiceMode {
-						log.Println(err)
-					}
-				}
-				_, err = winDivert.Send(&rstPacket)
-				if err != nil {
-					if LogLevel > 0 || !ServiceMode {
-						log.Println(err)
-					}
-				}
-				_, err = winDivert.Send(&rstPacket)
-				if err != nil {
-					if LogLevel > 0 || !ServiceMode {
-						log.Println(err)
-					}
-				}
-
-				binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], 1)
+				binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], 0)
 				packet.CalcNewChecksum(winDivert)
 			} else {
-				var info *ConnInfo
-				if ipv6 {
-					info = PortList6[dstPort]
-				} else {
-					info = PortList4[dstPort]
-				}
-
-				info.AckNum = binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
-
-				binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], 1)
+				binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], 0)
 				rawbuf[ipheadlen+13] = TCP_ACK
 				packet.Raw[ipheadlen+12] = 5 << 4
 				packet.Raw = packet.Raw[:ipheadlen+20]
@@ -882,7 +836,6 @@ func TFODaemon(srcAddr string, srcPort int) {
 				info = PortList4[dstPort]
 			}
 			if info == nil {
-				log.Println("No Connect")
 				continue
 			}
 			seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
@@ -1211,7 +1164,6 @@ func TCPDaemon(address string) {
 					}
 
 					if (config.Option & OPT_TFO) != 0 {
-						log.Println(dstAddr, "TFO")
 						synOption := make([]byte, tcpheadlen-20)
 						copy(synOption, packet.Raw[ipheadlen+20:])
 
@@ -1220,8 +1172,6 @@ func TCPDaemon(address string) {
 
 						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 						if option != nil {
-							log.Println(dstAddr, "TFO OK")
-
 							if ipv6 {
 								copy(rawbuf[8:], packet.Raw[24:40])
 								copy(rawbuf[24:], packet.Raw[8:24])
@@ -1244,7 +1194,6 @@ func TCPDaemon(address string) {
 								OptionMap[dstAddr] = nil
 								go TFODaemon(dstAddr, tcpAddr.Port)
 							}
-							log.Println(dstAddr, "Get Cookies")
 							packet.PacketLen += 4
 							rawbuf[ipheadlen+12] += 1 << 4
 							rawbuf[ipheadlen+tcpheadlen] = 34
@@ -1295,14 +1244,34 @@ func TCPDaemon(address string) {
 			if info != nil {
 				if info.Option&OPT_TFO != 0 {
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
+
+					ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
+					ackNum += info.AckNum
+					binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
+
 					if seqNum == info.SeqNum+1 {
-						continue
-					} else {
-						ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
-						ackNum += info.AckNum
-						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
+						packet.Raw[ipheadlen+12] = 5 << 4
+						packet.Raw[ipheadlen+13] = TCP_RST | TCP_ACK
+						packet.PacketLen = uint(ipheadlen + 20)
+						if ipv6 {
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(packet.PacketLen))
+						} else {
+							binary.BigEndian.PutUint16(rawbuf[2:], uint16(packet.PacketLen))
+						}
 						packet.CalcNewChecksum(winDivert)
+
+						_, err = winDivert.Send(packet)
+						if err != nil {
+							if LogLevel > 0 || !ServiceMode {
+								log.Println(err)
+							}
+						}
+
+						packet.Raw[ipheadlen+13] = TCP_RST
+						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], 0)
 					}
+
+					packet.CalcNewChecksum(winDivert)
 				}
 			}
 
@@ -1548,6 +1517,13 @@ func loadConfig() error {
 							} else {
 								ips := strings.Split(keys[1], ",")
 								for _, ip := range ips {
+									config, ok := IPMap[ip]
+									if ok {
+										option |= config.Option
+										if syncMSS == 0 {
+											syncMSS = config.MSS
+										}
+									}
 									IPMap[ip] = IPConfig{option, minTTL, maxTTL, syncMSS}
 								}
 								count4, answer4 := packAnswers(ips, 1)
