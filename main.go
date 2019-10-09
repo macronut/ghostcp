@@ -1261,6 +1261,10 @@ func TCPDaemon(address string) {
 					binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
 
 					if seqNum == info.SeqNum+1 {
+						if ackNum == 1 && info.AckNum == 0 {
+							continue
+						}
+
 						packet.Raw[ipheadlen+12] = 5 << 4
 						packet.Raw[ipheadlen+13] = TCP_RST | TCP_ACK
 						packet.PacketLen = uint(ipheadlen + 20)
