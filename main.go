@@ -958,6 +958,18 @@ func TCPDaemon(address string) {
 						rawbuf[ipheadlen+12] = offset << 4
 						rawbuf[ipheadlen+13] = TCP_SYN
 
+						if (info.Option & OPT_MSS) != 0 {
+							if tcpheadlen >= 24 {
+								tcpOption := rawbuf[ipheadlen+20]
+								if tcpOption == 2 {
+									config, ok := IPMap[dstAddr]
+									if ok {
+										binary.BigEndian.PutUint16(rawbuf[ipheadlen+22:], config.MSS)
+									}
+								}
+							}
+						}
+
 						cookies := getCookies(option)
 						cookiesLen := len(cookies)
 						optLen = cookiesLen + 2
@@ -1154,16 +1166,6 @@ func TCPDaemon(address string) {
 
 					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
-					if (config.Option & OPT_MSS) != 0 {
-						if tcpheadlen >= 24 {
-							tcpOption := packet.Raw[ipheadlen+20]
-							if tcpOption == 2 {
-								binary.BigEndian.PutUint16(packet.Raw[ipheadlen+22:], config.MSS)
-								packet.CalcNewChecksum(winDivert)
-							}
-						}
-					}
-
 					if (config.Option & OPT_TFO) != 0 {
 						synOption := make([]byte, tcpheadlen-20)
 						copy(synOption, packet.Raw[ipheadlen+20:])
@@ -1216,6 +1218,14 @@ func TCPDaemon(address string) {
 						packet.Raw = rawbuf[:packet.PacketLen]
 
 						packet.CalcNewChecksum(winDivert)
+					} else if (config.Option & OPT_MSS) != 0 {
+						if tcpheadlen >= 24 {
+							tcpOption := packet.Raw[ipheadlen+20]
+							if tcpOption == 2 {
+								binary.BigEndian.PutUint16(packet.Raw[ipheadlen+22:], config.MSS)
+								packet.CalcNewChecksum(winDivert)
+							}
+						}
 					}
 
 					logPrintln(packet.DstIP(), config.Option)
