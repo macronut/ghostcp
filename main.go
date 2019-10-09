@@ -72,14 +72,14 @@ const (
 )
 
 const (
-	TCP_FIN = 0x01
-	TCP_SYN = 0x02
-	TCP_RST = 0x04
-	TCP_PSH = 0x08
-	TCP_ACK = 0x10
-	TCP_URG = 0x20
-	TCP_ECE = 0x40
-	TCP_CWR = 0x80
+	TCP_FIN = byte(0x01)
+	TCP_SYN = byte(0x02)
+	TCP_RST = byte(0x04)
+	TCP_PSH = byte(0x08)
+	TCP_ACK = byte(0x10)
+	TCP_URG = byte(0x20)
+	TCP_ECE = byte(0x40)
+	TCP_CWR = byte(0x80)
 )
 
 var Logger *log.Logger
@@ -1071,6 +1071,7 @@ func TCPDaemon(address string) {
 						tmp_rawbuf[8] = info.MAXTTL
 					}
 				}
+				tmp_rawbuf[ipheadlen+13] &= ^TCP_PSH
 
 				prefix_packet := *packet
 				prefix_packet.Raw = tmp_rawbuf[:total_cut_offset]
