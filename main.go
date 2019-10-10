@@ -794,7 +794,7 @@ func TFODaemon(srcAddr string, srcPort int) {
 
 		dstPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:])
 
-		if (packet.Raw[ipheadlen+13] & TCP_SYN) != 0 {
+		if packet.Raw[ipheadlen+13] == TCP_SYN|TCP_ACK {
 			var info *ConnInfo
 			if ipv6 {
 				info = PortList6[dstPort]
@@ -803,6 +803,7 @@ func TFODaemon(srcAddr string, srcPort int) {
 			}
 
 			info.AckNum = binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
+			binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], 0)
 			tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
 			optStart := ipheadlen + 20
@@ -812,12 +813,14 @@ func TFODaemon(srcAddr string, srcPort int) {
 				tmp_option := make([]byte, len(option))
 				copy(tmp_option, option)
 				OptionMap[srcAddr] = tmp_option
-
-				binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], 0)
-				packet.CalcNewChecksum(winDivert)
 			} else {
-				binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], 0)
-				rawbuf[ipheadlen+13] = TCP_ACK
+				ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
+				if ackNum > info.SeqNum {
+					rawbuf[ipheadlen+13] = TCP_ACK
+				} else {
+					rawbuf[ipheadlen+13] = TCP_ACK | TCP_RST
+					delete(OptionMap, packet.SrcIP().String())
+				}
 				packet.Raw[ipheadlen+12] = 5 << 4
 				packet.Raw = packet.Raw[:ipheadlen+20]
 				packet.PacketLen = uint(ipheadlen + 20)
@@ -826,8 +829,8 @@ func TFODaemon(srcAddr string, srcPort int) {
 				} else {
 					binary.BigEndian.PutUint16(packet.Raw[2:], uint16(packet.PacketLen))
 				}
-				packet.CalcNewChecksum(winDivert)
 			}
+			packet.CalcNewChecksum(winDivert)
 		} else {
 			var info *ConnInfo
 			if ipv6 {
@@ -1152,7 +1155,7 @@ func TCPDaemon(address string) {
 					continue
 				}
 			}
-		} else if (packet.Raw[ipheadlen+13] & TCP_SYN) != 0 {
+		} else if packet.Raw[ipheadlen+13] == TCP_SYN {
 			dstAddr := packet.DstIP().String()
 			config, ok := IPMap[dstAddr]
 
@@ -1561,8 +1564,9 @@ func loadConfig() error {
 						IPv6Enable = true
 						logPrintln(string(line))
 					} else {
-						_, err := net.ResolveTCPAddr("tcp", keys[0])
+						addr, err := net.ResolveTCPAddr("tcp", keys[0])
 						if err == nil {
+							IPMap[addr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
 							go TCPDaemon(keys[0])
 						} else {
 							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, nil}
