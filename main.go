@@ -864,7 +864,6 @@ func TFODaemon(srcAddr string, srcPort int, forward bool) {
 					binary.BigEndian.PutUint16(packet.Raw[2:], uint16(packet.PacketLen))
 				}
 			}
-			packet.CalcNewChecksum(winDivert)
 		} else {
 			var info *ConnInfo
 			if ipv6 {
@@ -875,12 +874,13 @@ func TFODaemon(srcAddr string, srcPort int, forward bool) {
 			if info == nil {
 				continue
 			}
+
 			seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 			seqNum -= info.AckNum
 			binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], seqNum)
-			packet.CalcNewChecksum(winDivert)
 		}
 
+		packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(packet)
 		if err != nil {
 			if LogLevel > 0 || !ServiceMode {
@@ -988,8 +988,17 @@ func TCPDaemon(address string, forward bool) {
 					host_offset = 20
 					host_length = 1
 				}
+				if ipv6 {
+					PortList6[srcPort] = nil
+				} else {
+					PortList4[srcPort] = nil
+				}
 			case 80:
-				host_offset, host_length = getHost(packet.Raw[ipheadlen+tcpheadlen:])
+				request := packet.Raw[ipheadlen+tcpheadlen:]
+				host_offset, host_length = getHost(request)
+				host := string(request[host_offset : host_offset+host_length])
+				config := domainLookup(host)
+				info.Option = config.Option
 			case 443:
 				if info.Option&OPT_TFO != 0 {
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
@@ -1064,7 +1073,11 @@ func TCPDaemon(address string, forward bool) {
 					}
 					packet.CalcNewChecksum(winDivert)
 				} else {
-					host_offset, host_length = getSNI(packet.Raw[ipheadlen+tcpheadlen:])
+					hello := packet.Raw[ipheadlen+tcpheadlen:]
+					host_offset, host_length = getSNI(hello)
+					host := string(hello[host_offset : host_offset+host_length])
+					config := domainLookup(host)
+					info.Option = config.Option
 
 					if ipv6 {
 						PortList6[srcPort] = nil
@@ -1076,7 +1089,7 @@ func TCPDaemon(address string, forward bool) {
 				host_length = len(packet.Raw[ipheadlen+tcpheadlen:])
 			}
 
-			if host_length > 0 {
+			if info.Option != 0 && host_length > 0 {
 				fake_packet := *packet
 				copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
 
