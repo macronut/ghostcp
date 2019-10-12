@@ -60,6 +60,7 @@ var LocalDNS bool = false
 var ServiceMode bool = true
 var IPv6Enable = false
 var LogLevel = 0
+var Forward bool = false
 
 const (
 	OPT_TTL  = 0x01
@@ -108,7 +109,10 @@ func TCPlookup(request []byte, address string) ([]byte, error) {
 	length := 0
 	recvlen := 0
 	for {
-		n, err := server.Read(data[length:])
+		if recvlen >= 1024 {
+			return nil, nil
+		}
+		n, err := server.Read(data[recvlen:])
 		if err != nil {
 			return nil, err
 		}
@@ -710,9 +714,18 @@ func getHost(b []byte) (offset int, length int) {
 	return
 }
 
-func UDPDaemon(dstPort int) {
-	filter := "outbound and !loopback and udp.DstPort == " + strconv.Itoa(dstPort)
-	winDivert, err := godivert.NewWinDivertHandle(filter)
+func UDPDaemon(dstPort int, forward bool) {
+	var filter string
+	var layer uint8
+	if forward {
+		filter = "!loopback and udp.DstPort == " + strconv.Itoa(dstPort)
+		layer = 1
+	} else {
+		filter = "outbound and !loopback and udp.DstPort == " + strconv.Itoa(dstPort)
+		layer = 0
+	}
+
+	winDivert, err := godivert.NewWinDivertHandleWithLayerFlags(filter, layer, 0)
 	if err != nil {
 		if LogLevel > 0 || !ServiceMode {
 			log.Println(err, filter)
@@ -763,9 +776,17 @@ func getCookies(option []byte) []byte {
 	return nil
 }
 
-func TFODaemon(srcAddr string, srcPort int) {
-	filter := fmt.Sprintf("inbound and ip.SrcAddr = %s and tcp.SrcPort == %d", srcAddr, srcPort)
-	winDivert, err := godivert.NewWinDivertHandle(filter)
+func TFODaemon(srcAddr string, srcPort int, forward bool) {
+	var filter string
+	var layer uint8
+	if forward {
+		filter = fmt.Sprintf("ip.SrcAddr = %s and tcp.SrcPort == %d", srcAddr, srcPort)
+		layer = 1
+	} else {
+		filter = fmt.Sprintf("inbound and ip.SrcAddr = %s and tcp.SrcPort == %d", srcAddr, srcPort)
+		layer = 0
+	}
+	winDivert, err := godivert.NewWinDivertHandleWithLayerFlags(filter, layer, 0)
 	if err != nil {
 		if LogLevel > 0 || !ServiceMode {
 			log.Println(err, filter)
@@ -790,6 +811,19 @@ func TFODaemon(srcAddr string, srcPort int) {
 			ipheadlen = 40
 		} else {
 			ipheadlen = int(packet.Raw[0]&0xF) * 4
+		}
+
+		if forward && !ipv6 {
+			lanAddr := [4]byte{192, 168, 137, 0}
+			if bytes.Compare(packet.Raw[16:19], lanAddr[:3]) == 0 {
+				_, err = winDivert.Send(packet)
+				if err != nil {
+					if LogLevel > 0 || !ServiceMode {
+						log.Println(err)
+					}
+				}
+				continue
+			}
 		}
 
 		dstPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:])
@@ -856,7 +890,7 @@ func TFODaemon(srcAddr string, srcPort int) {
 	}
 }
 
-func TCPDaemon(address string) {
+func TCPDaemon(address string, forward bool) {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
 	if err != nil {
 		if LogLevel > 0 || !ServiceMode {
@@ -866,13 +900,24 @@ func TCPDaemon(address string) {
 	}
 
 	var filter string
-	if address[0] == ':' {
-		filter = fmt.Sprintf("!loopback and outbound and tcp.DstPort == %s", address[1:])
+	var layer uint8
+	if forward {
+		if address[0] == ':' {
+			filter = fmt.Sprintf("!loopback and tcp.DstPort == %s", address[1:])
+		} else {
+			filter = fmt.Sprintf("ip.DstAddr = %s and tcp.DstPort == %d", tcpAddr.IP.String(), tcpAddr.Port)
+		}
+		layer = 1
 	} else {
-		filter = fmt.Sprintf("outbound and ip.DstAddr = %s and tcp.DstPort == %d", tcpAddr.IP.String(), tcpAddr.Port)
+		if address[0] == ':' {
+			filter = fmt.Sprintf("!loopback and outbound and tcp.DstPort == %s", address[1:])
+		} else {
+			filter = fmt.Sprintf("outbound and ip.DstAddr = %s and tcp.DstPort == %d", tcpAddr.IP.String(), tcpAddr.Port)
+		}
+		layer = 0
 	}
 
-	winDivert, err := godivert.NewWinDivertHandle(filter)
+	winDivert, err := godivert.NewWinDivertHandleWithLayerFlags(filter, layer, 0)
 	if err != nil {
 		if LogLevel > 0 || !ServiceMode {
 			log.Println(err, filter)
@@ -898,6 +943,20 @@ func TCPDaemon(address string) {
 		} else {
 			ipheadlen = int(packet.Raw[0]&0xF) * 4
 		}
+
+		if forward && !ipv6 {
+			lanAddr := [4]byte{192, 168, 137, 0}
+			if bytes.Compare(packet.Raw[12:15], lanAddr[:3]) == 0 {
+				_, err = winDivert.Send(packet)
+				if err != nil {
+					if LogLevel > 0 || !ServiceMode {
+						log.Println(err)
+					}
+				}
+				continue
+			}
+		}
+
 		srcPort := int(binary.BigEndian.Uint16(packet.Raw[ipheadlen:]))
 
 		if (packet.Raw[ipheadlen+13] & TCP_PSH) != 0 {
@@ -1198,7 +1257,7 @@ func TCPDaemon(address string) {
 						} else {
 							if !ok {
 								OptionMap[dstAddr] = nil
-								go TFODaemon(dstAddr, tcpAddr.Port)
+								go TFODaemon(dstAddr, tcpAddr.Port, forward)
 							}
 							packet.PacketLen += 4
 							rawbuf[ipheadlen+12] += 1 << 4
@@ -1328,10 +1387,19 @@ func getMyIPv6() net.IP {
 	return nil
 }
 
-func NAT64(ipv6 net.IP, ipv4 net.IP) {
+func NAT64(ipv6 net.IP, ipv4 net.IP, forward bool) {
 	copy(ipv6[12:], ipv4[:4])
-	filter := "!loopback and ((outbound and ip.DstAddr=" + ipv4.String() + ") or (inbound and ipv6.SrcAddr=" + ipv6.String() + "))"
-	winDivert, err := godivert.NewWinDivertHandle(filter)
+	var filter string
+	var layer uint8
+	if forward {
+		filter = "!loopback and ((ip.DstAddr=" + ipv4.String() + ") or (ipv6.SrcAddr=" + ipv6.String() + "))"
+		layer = 1
+	} else {
+		filter = "!loopback and ((outbound and ip.DstAddr=" + ipv4.String() + ") or (inbound and ipv6.SrcAddr=" + ipv6.String() + "))"
+		layer = 0
+	}
+
+	winDivert, err := godivert.NewWinDivertHandleWithLayerFlags(filter, layer, 0)
 	if err != nil {
 		if LogLevel > 0 || !ServiceMode {
 			log.Println(err, filter)
@@ -1552,7 +1620,10 @@ func loadConfig() error {
 							prefix := net.ParseIP(keys[1])
 							ip4 := ip.To4()
 							if ip4 != nil {
-								go NAT64(prefix, ip4)
+								if Forward {
+									go NAT64(prefix, ip4, true)
+								}
+								go NAT64(prefix, ip4, false)
 							}
 						}
 					}
@@ -1563,11 +1634,17 @@ func loadConfig() error {
 					} else if keys[0] == "ipv6" {
 						IPv6Enable = true
 						logPrintln(string(line))
+					} else if keys[0] == "forward" {
+						Forward = true
+						logPrintln(string(line))
 					} else {
 						addr, err := net.ResolveTCPAddr("tcp", keys[0])
 						if err == nil {
 							IPMap[addr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
-							go TCPDaemon(keys[0])
+							if Forward {
+								go TCPDaemon(keys[0], true)
+							}
+							go TCPDaemon(keys[0], false)
 						} else {
 							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, nil}
 						}
@@ -1608,12 +1685,18 @@ func StartService() {
 	if LocalDNS {
 		go DNSRecvDaemon()
 	} else {
-		go TCPDaemon(DNS)
+		go TCPDaemon(DNS, false)
 	}
 
-	go TCPDaemon(":80")
-	go UDPDaemon(443)
-	TCPDaemon(":443")
+	if Forward {
+		go TCPDaemon(":80", true)
+		go UDPDaemon(443, true)
+		go TCPDaemon(":443", true)
+	}
+
+	go TCPDaemon(":80", false)
+	go UDPDaemon(443, false)
+	TCPDaemon(":443", false)
 }
 
 func StopService() {
