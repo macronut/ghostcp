@@ -996,12 +996,9 @@ func TCPDaemon(address string, forward bool) {
 			case 80:
 				request := packet.Raw[ipheadlen+tcpheadlen:]
 				host_offset, host_length = getHost(request)
-				host := string(request[host_offset : host_offset+host_length])
-				config := domainLookup(host)
-				info.Option = config.Option
 			case 443:
+				seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 				if info.Option&OPT_TFO != 0 {
-					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 					if seqNum == info.SeqNum+1 {
 						var synOption []byte
 						if ipv6 {
@@ -1073,16 +1070,15 @@ func TCPDaemon(address string, forward bool) {
 					}
 					packet.CalcNewChecksum(winDivert)
 				} else {
-					hello := packet.Raw[ipheadlen+tcpheadlen:]
-					host_offset, host_length = getSNI(hello)
-					host := string(hello[host_offset : host_offset+host_length])
-					config := domainLookup(host)
-					info.Option = config.Option
-
-					if ipv6 {
-						PortList6[srcPort] = nil
+					if seqNum == info.SeqNum+1 {
+						hello := packet.Raw[ipheadlen+tcpheadlen:]
+						host_offset, host_length = getSNI(hello)
 					} else {
-						PortList4[srcPort] = nil
+						if ipv6 {
+							PortList6[srcPort] = nil
+						} else {
+							PortList4[srcPort] = nil
+						}
 					}
 				}
 			default:
@@ -1233,10 +1229,11 @@ func TCPDaemon(address string, forward bool) {
 
 			if ok {
 				if config.Option != 0 {
+					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 					if ipv6 {
-						PortList6[srcPort] = &ConnInfo{config.Option, 0, 0, config.TTL, config.MAXTTL}
+						PortList6[srcPort] = &ConnInfo{config.Option, seqNum, 0, config.TTL, config.MAXTTL}
 					} else {
-						PortList4[srcPort] = &ConnInfo{config.Option, 0, 0, config.TTL, config.MAXTTL}
+						PortList4[srcPort] = &ConnInfo{config.Option, seqNum, 0, config.TTL, config.MAXTTL}
 					}
 
 					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
@@ -1248,7 +1245,6 @@ func TCPDaemon(address string, forward bool) {
 						copy(rawbuf, packet.Raw)
 						option, ok := OptionMap[dstAddr]
 
-						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 						if option != nil {
 							if ipv6 {
 								copy(rawbuf[8:], packet.Raw[24:40])
