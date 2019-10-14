@@ -66,13 +66,15 @@ var LogLevel = 0
 var Forward bool = false
 
 const (
-	OPT_TTL  = 0x01
-	OPT_MSS  = 0x02
-	OPT_MD5  = 0x04
-	OPT_ACK  = 0x08
-	OPT_SYN  = 0x10
-	OPT_CSUM = 0x20
-	OPT_TFO  = 0x40
+	OPT_TTL   = 0x001
+	OPT_MSS   = 0x002
+	OPT_MD5   = 0x004
+	OPT_ACK   = 0x008
+	OPT_SYN   = 0x010
+	OPT_CSUM  = 0x020
+	OPT_TFO   = 0x040
+	OPT_BAD   = 0x080
+	OPT_IPOPT = 0x100
 )
 
 const (
@@ -1116,25 +1118,43 @@ func TCPDaemon(address string, forward bool) {
 					}
 				}
 
+				fakeipheadlen := ipheadlen
+				if (info.Option & OPT_IPOPT) != 0 {
+					fakeipheadlen += 32
+					copy(rawbuf[fakeipheadlen:], packet.Raw[ipheadlen:ipheadlen+tcpheadlen])
+					if ipv6 {
+					} else {
+						rawbuf[0] = rawbuf[0]&0xF0 | byte(fakeipheadlen/4)
+					}
+					for i := 0; i < 31; i++ {
+						rawbuf[ipheadlen+i] = 1
+					}
+					rawbuf[ipheadlen+31] = 0
+				}
+
 				if (info.Option & OPT_MD5) != 0 {
-					copy(rawbuf[ipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-					rawbuf[ipheadlen+12] = 10 << 4
+					copy(rawbuf[fakeipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+					rawbuf[fakeipheadlen+12] = 10 << 4
 				}
 
 				if (info.Option & OPT_ACK) != 0 {
-					ackNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+8:])
-					ackNum += uint32(binary.BigEndian.Uint16(rawbuf[ipheadlen+14:]))
-					binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], ackNum)
+					ackNum := binary.BigEndian.Uint32(rawbuf[fakeipheadlen+8:])
+					ackNum += uint32(binary.BigEndian.Uint16(rawbuf[fakeipheadlen+14:]))
+					binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+8:], ackNum)
+				}
+
+				if (info.Option & OPT_BAD) != 0 {
+					rawbuf[fakeipheadlen+12] = 4 << 4
 				}
 
 				if (info.Option & OPT_SYN) != 0 {
-					rawbuf[ipheadlen+13] = TCP_SYN
+					rawbuf[fakeipheadlen+13] = TCP_SYN
 
 					seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
 					seqNum += 65536
 					binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], seqNum)
 					if (info.Option & OPT_ACK) != 0 {
-						rawbuf[ipheadlen+13] |= TCP_ACK
+						rawbuf[fakeipheadlen+13] |= TCP_ACK
 					} else {
 						binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
 					}
@@ -1144,7 +1164,7 @@ func TCPDaemon(address string, forward bool) {
 				fake_packet.CalcNewChecksum(winDivert)
 
 				if (info.Option & OPT_CSUM) != 0 {
-					binary.BigEndian.PutUint16(rawbuf[ipheadlen+16:], 0)
+					binary.BigEndian.PutUint16(rawbuf[fakeipheadlen+16:], 0)
 				}
 
 				if (info.Option & (OPT_ACK | OPT_SYN)) == 0 {
@@ -1607,6 +1627,20 @@ func loadConfig() error {
 							option |= OPT_TFO
 						} else {
 							option &= ^uint32(OPT_TFO)
+						}
+						logPrintln(string(line))
+					} else if keys[0] == "bad" {
+						if keys[1] == "true" {
+							option |= OPT_BAD
+						} else {
+							option &= ^uint32(OPT_BAD)
+						}
+						logPrintln(string(line))
+					} else if keys[0] == "ipoption" {
+						if keys[1] == "true" {
+							option |= OPT_IPOPT
+						} else {
+							option &= ^uint32(OPT_IPOPT)
 						}
 						logPrintln(string(line))
 					} else if keys[0] == "max-ttl" {
