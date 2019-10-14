@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chai2010/winsvc"
@@ -54,6 +55,8 @@ var PortList6 [65536]*ConnInfo
 var OptionMap map[string][]byte
 var SynOption4 []byte
 var SynOption6 []byte
+var wg sync.WaitGroup
+
 var DNS string = ""
 var DNS64 string = ""
 var LocalDNS bool = false
@@ -87,7 +90,7 @@ var Logger *log.Logger
 
 func logPrintln(v ...interface{}) {
 	if LogLevel > 1 {
-		log.Println(v)
+		fmt.Println(v)
 	}
 }
 
@@ -375,6 +378,9 @@ func packAnswers(ips []string, qtype int) (int, []byte) {
 }
 
 func DNSDaemon() {
+	wg.Add(1)
+	defer wg.Done()
+
 	arg := []string{"/flushdns"}
 	cmd := exec.Command("ipconfig", arg...)
 	d, err := cmd.CombinedOutput()
@@ -597,6 +603,9 @@ func DNSDaemon() {
 }
 
 func DNSRecvDaemon() {
+	wg.Add(1)
+	defer wg.Done()
+
 	filter := "((outbound and loopback) or inbound) and udp.SrcPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
@@ -717,6 +726,9 @@ func getHost(b []byte) (offset int, length int) {
 }
 
 func UDPDaemon(dstPort int, forward bool) {
+	wg.Add(1)
+	defer wg.Done()
+
 	var filter string
 	var layer uint8
 	if forward {
@@ -779,6 +791,9 @@ func getCookies(option []byte) []byte {
 }
 
 func TFODaemon(srcAddr string, srcPort int, forward bool) {
+	wg.Add(1)
+	defer wg.Done()
+
 	var filter string
 	var layer uint8
 	if forward {
@@ -893,6 +908,8 @@ func TFODaemon(srcAddr string, srcPort int, forward bool) {
 }
 
 func TCPDaemon(address string, forward bool) {
+	wg.Add(1)
+	defer wg.Done()
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
 	if err != nil {
 		if LogLevel > 0 || !ServiceMode {
@@ -1399,6 +1416,9 @@ func getMyIPv6() net.IP {
 }
 
 func NAT64(ipv6 net.IP, ipv4 net.IP, forward bool) {
+	wg.Add(1)
+	defer wg.Done()
+
 	copy(ipv6[12:], ipv4[:4])
 	var filter string
 	var layer uint8
@@ -1692,22 +1712,32 @@ func StartService() {
 		return
 	}
 
+	go TCPDaemon(":443", false)
+	time.Sleep(time.Millisecond * 200)
+	go TCPDaemon(":80", false)
+	time.Sleep(time.Millisecond * 200)
+	go UDPDaemon(443, false)
+
+	if Forward {
+		go TCPDaemon(":443", true)
+		time.Sleep(time.Millisecond * 200)
+		go TCPDaemon(":80", true)
+		time.Sleep(time.Millisecond * 200)
+		go UDPDaemon(443, true)
+		time.Sleep(time.Millisecond * 200)
+	}
+
 	go DNSDaemon()
+	time.Sleep(time.Millisecond * 200)
+
 	if LocalDNS {
 		go DNSRecvDaemon()
 	} else {
 		go TCPDaemon(DNS, false)
 	}
 
-	if Forward {
-		go TCPDaemon(":80", true)
-		go UDPDaemon(443, true)
-		go TCPDaemon(":443", true)
-	}
-
-	go TCPDaemon(":80", false)
-	go UDPDaemon(443, false)
-	TCPDaemon(":443", false)
+	fmt.Println("Service Start")
+	wg.Wait()
 }
 
 func StopService() {
