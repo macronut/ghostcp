@@ -554,16 +554,18 @@ func DNSDaemon() {
 							}
 							return
 						}
-						if response == nil {
+						if off >= len(response) {
 							return
 						}
 
 						count := int(binary.BigEndian.Uint16(response[6:8]))
+
 						ips := getAnswers(response[off:], count)
 						for _, ip := range ips {
-							_, ok := IPMap[ip]
+							ipConfig, ok := IPMap[ip]
+							option := ipConfig.Option | config.Option
 							if ok == false {
-								IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
+								IPMap[ip] = IPConfig{option, config.TTL, config.MAXTTL, config.MSS}
 							}
 						}
 
