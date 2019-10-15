@@ -75,6 +75,7 @@ const (
 	OPT_TFO   = 0x040
 	OPT_BAD   = 0x080
 	OPT_IPOPT = 0x100
+	OPT_PSH   = 0x200
 )
 
 const (
@@ -1045,7 +1046,11 @@ func TCPDaemon(address string, forward bool) {
 						packet.PacketLen = uint(ipheadlen + 20 + optLen)
 						offset := 5 + byte(optLen/4)
 						rawbuf[ipheadlen+12] = offset << 4
-						rawbuf[ipheadlen+13] = TCP_SYN
+						if info.Option&OPT_PSH != 0 {
+							rawbuf[ipheadlen+13] = TCP_SYN | TCP_PSH
+						} else {
+							rawbuf[ipheadlen+13] = TCP_SYN
+						}
 
 						if (info.Option & OPT_MSS) != 0 {
 							if tcpheadlen >= 24 {
@@ -1641,6 +1646,13 @@ func loadConfig() error {
 							option |= OPT_IPOPT
 						} else {
 							option &= ^uint32(OPT_IPOPT)
+						}
+						logPrintln(string(line))
+					} else if keys[0] == "psh" {
+						if keys[1] == "true" {
+							option |= OPT_PSH
+						} else {
+							option &= ^uint32(OPT_PSH)
 						}
 						logPrintln(string(line))
 					} else if keys[0] == "max-ttl" {
