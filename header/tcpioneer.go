@@ -55,8 +55,8 @@ const (
 
 var Logger *log.Logger
 
-func logPrintln(v ...interface{}) {
-	if LogLevel > 1 {
+func logPrintln(level int, v ...interface{}) {
+	if LogLevel >= level {
 		fmt.Println(v)
 	}
 }
@@ -204,10 +204,10 @@ func LoadConfig() error {
 							return err
 						}
 						IPMap[tcpAddr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "ttl" {
 						ttl, err := strconv.Atoi(keys[1])
 						if err != nil {
@@ -220,7 +220,7 @@ func LoadConfig() error {
 							option |= OPT_TTL
 						}
 						minTTL = byte(ttl)
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "mss" {
 						mss, err := strconv.Atoi(keys[1])
 						if err != nil {
@@ -233,63 +233,63 @@ func LoadConfig() error {
 							option |= OPT_MSS
 						}
 						syncMSS = uint16(mss)
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "md5" {
 						if keys[1] == "true" {
 							option |= OPT_MD5
 						} else {
 							option &= ^uint32(OPT_MD5)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "ack" {
 						if keys[1] == "true" {
 							option |= OPT_ACK
 						} else {
 							option &= ^uint32(OPT_ACK)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "syn" {
 						if keys[1] == "true" {
 							option |= OPT_SYN
 						} else {
 							option &= ^uint32(OPT_SYN)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "checksum" {
 						if keys[1] == "true" {
 							option |= OPT_CSUM
 						} else {
 							option &= ^uint32(OPT_CSUM)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "tcpfastopen" {
 						if keys[1] == "true" {
 							option |= OPT_TFO
 						} else {
 							option &= ^uint32(OPT_TFO)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "bad" {
 						if keys[1] == "true" {
 							option |= OPT_BAD
 						} else {
 							option &= ^uint32(OPT_BAD)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "ipoption" {
 						if keys[1] == "true" {
 							option |= OPT_IPOPT
 						} else {
 							option &= ^uint32(OPT_IPOPT)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "psh" {
 						if keys[1] == "true" {
 							option |= OPT_PSH
 						} else {
 							option &= ^uint32(OPT_PSH)
 						}
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "max-ttl" {
 						ttl, err := strconv.Atoi(keys[1])
 						if err != nil {
@@ -297,7 +297,7 @@ func LoadConfig() error {
 							return err
 						}
 						maxTTL = byte(ttl)
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "log" {
 						LogLevel, err = strconv.Atoi(keys[1])
 						if err != nil {
@@ -342,13 +342,13 @@ func LoadConfig() error {
 				} else {
 					if keys[0] == "local-dns" {
 						LocalDNS = true
-						logPrintln("local-dns")
+						logPrintln(2, "local-dns")
 					} else if keys[0] == "ipv6" {
 						IPv6Enable = true
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else if keys[0] == "forward" {
 						Forward = true
-						logPrintln(string(line))
+						logPrintln(2, string(line))
 					} else {
 						addr, err := net.ResolveTCPAddr("tcp", keys[0])
 						if err == nil {

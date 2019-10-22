@@ -54,7 +54,7 @@ func DNSDaemon() {
 		udpheadlen := 8
 		qname, qtype, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
 		if qname == "" {
-			logPrintln("DNS Segmentation fault")
+			logPrintln(2, "DNS Segmentation fault")
 			continue
 		}
 
@@ -119,7 +119,7 @@ func DNSDaemon() {
 				_, err = winDivert.Send(packet)
 			} else {
 				if anCount > 0 {
-					logPrintln(qname)
+					logPrintln(2, qname)
 					request := packet.Raw[ipheadlen+udpheadlen:]
 					udpsize := len(request) + len(answers) + 8
 
@@ -156,7 +156,7 @@ func DNSDaemon() {
 
 					_, err = winDivert.Send(packet)
 				} else if !LocalDNS {
-					logPrintln(qname, config.Option)
+					logPrintln(2, qname, config.Option)
 					go func(level int, answers6 []byte, offset int) {
 						rawbuf := make([]byte, 1500)
 						if ipv6 {
@@ -226,6 +226,8 @@ func DNSDaemon() {
 
 						_, err = winDivert.Send(packet)
 					}(int(config.Option), config.Answers6, off)
+				} else {
+					logPrintln(3, qname)
 				}
 			}
 		} else {
@@ -269,14 +271,14 @@ func DNSRecvDaemon() {
 		udpheadlen := 8
 		qname, qtype, off := getQName(packet.Raw[ipheadlen+udpheadlen:])
 		if qname == "" {
-			logPrintln("DNS Segmentation fault")
+			logPrintln(2, "DNS Segmentation fault")
 			continue
 		}
 
 		config := domainLookup(qname)
 
 		if config.Option > 1 && qtype == 1 {
-			logPrintln(qname, "LEVEL", config.Option)
+			logPrintln(2, qname, "LEVEL", config.Option)
 			response := packet.Raw[ipheadlen+udpheadlen:]
 			count := int(binary.BigEndian.Uint16(response[6:8]))
 			ips := getAnswers(response[off:], count)
