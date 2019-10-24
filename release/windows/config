@@ -1,4 +1,5 @@
 #ipv6
+#forward
 #ttl=12
 mss=0
 md5=true
@@ -21,8 +22,10 @@ ttl=12
 md5=true
 mss=0
 
+tcpfastopen=true
 .wikipedia.org=198.35.26.96,208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
 .m.wikipedia.org=198.35.26.96,208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
+tcpfastopen=false
 upload.wikimedia.org=198.35.26.112,208.80.153.240,208.80.154.240,91.198.174.208,103.102.166.240
 #.wikipedia.org=2620:0:863:ed1a::1,2620:0:860:ed1a::1,2620:0:861:ed1a::1,2620:0:862:ed1a::1,2001:df2:e500:ed1a::1
 #.m.wikipedia.org=2620:0:863:ed1a::1,2620:0:860:ed1a::1,2620:0:861:ed1a::1,2620:0:862:ed1a::1,2001:df2:e500:ed1a::1
@@ -102,6 +105,7 @@ google.com=216.58.204.168
 .google.com.hk=216.58.204.168
 .googleapis.com=216.58.204.168
 .gstatic.com=216.58.204.168
+.gvt1.com=216.58.204.168
 .googleusercontent.com=108.177.127.133
 .ajax.googleapis.com=216.58.204.168
 .googletagmanager.com=216.58.204.168
