@@ -195,7 +195,7 @@ func TCPDaemon(address string, forward bool) {
 		layer = 1
 	} else {
 		if address[0] == ':' {
-			filter = fmt.Sprintf("!loopback and outbound and tcp.DstPort == %s", address[1:])
+			filter = fmt.Sprintf("outbound and !loopback and tcp.DstPort == %s", address[1:])
 		} else {
 			filter = fmt.Sprintf("outbound and ip.DstAddr = %s and tcp.DstPort == %d", tcpAddr.IP.String(), tcpAddr.Port)
 		}
@@ -283,7 +283,7 @@ func TCPDaemon(address string, forward bool) {
 				host_offset, host_length = getHost(request)
 			case 443:
 				seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
-				if info.Option&OPT_TFO != 0 {
+				if !forward && info.Option&OPT_TFO != 0 {
 					if seqNum == info.SeqNum+1 {
 						var synOption []byte
 						if ipv6 {
@@ -544,7 +544,7 @@ func TCPDaemon(address string, forward bool) {
 
 				tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
-				if (config.Option & OPT_TFO) != 0 {
+				if !forward && (config.Option&OPT_TFO) != 0 {
 					synOption := make([]byte, tcpheadlen-20)
 					copy(synOption, packet.Raw[ipheadlen+20:])
 
@@ -630,7 +630,7 @@ func TCPDaemon(address string, forward bool) {
 			}
 
 			if info != nil {
-				if info.Option&OPT_TFO != 0 {
+				if !forward && info.Option&OPT_TFO != 0 {
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 
 					ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
@@ -642,9 +642,10 @@ func TCPDaemon(address string, forward bool) {
 							continue
 						}
 
+						tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 						packet.Raw[ipheadlen+12] = 5 << 4
 						packet.Raw[ipheadlen+13] = TCP_RST | TCP_ACK
-						packet.PacketLen = uint(ipheadlen + 20)
+						packet.PacketLen = uint(ipheadlen + tcpheadlen)
 						if ipv6 {
 							binary.BigEndian.PutUint16(rawbuf[4:], uint16(packet.PacketLen))
 						} else {
