@@ -53,7 +53,6 @@ func StartService() {
 		tcpioneer.UDPDaemon(443, true)
 	}
 
-	fmt.Println("Service Start")
 	if tcpioneer.DNS == "" {
 		tcpioneer.DNSRecvDaemon()
 	} else {
@@ -61,6 +60,7 @@ func StartService() {
 		tcpioneer.DNSDaemon()
 	}
 
+	fmt.Println("Service Start")
 	tcpioneer.Wait()
 }
 
