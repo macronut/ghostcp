@@ -9,7 +9,6 @@ import (
 
 var DNS string = ""
 var DNS64 string = ""
-var LocalDNS bool = false
 
 func TCPlookup(request []byte, address string) ([]byte, error) {
 	server, err := net.DialTimeout("tcp", address, time.Second*5)

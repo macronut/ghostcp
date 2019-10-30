@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"time"
 
 	"./header"
 	"github.com/chai2010/winsvc"
@@ -44,31 +43,24 @@ func StartService() {
 		tcpioneer.LogLevel = 1
 	}
 
-	go tcpioneer.TCPDaemon(":443", false)
-	time.Sleep(time.Millisecond * 200)
-	go tcpioneer.TCPDaemon(":80", false)
-	time.Sleep(time.Millisecond * 200)
-	go tcpioneer.UDPDaemon(443, false)
+	tcpioneer.TCPDaemon(":443", false)
+	tcpioneer.TCPDaemon(":80", false)
+	tcpioneer.UDPDaemon(443, false)
 
 	if tcpioneer.Forward {
-		go tcpioneer.TCPDaemon(":443", true)
-		time.Sleep(time.Millisecond * 200)
-		go tcpioneer.TCPDaemon(":80", true)
-		time.Sleep(time.Millisecond * 200)
-		go tcpioneer.UDPDaemon(443, true)
-		time.Sleep(time.Millisecond * 200)
-	}
-
-	go tcpioneer.DNSDaemon()
-	time.Sleep(time.Millisecond * 200)
-
-	if tcpioneer.LocalDNS {
-		go tcpioneer.DNSRecvDaemon()
-	} else {
-		go tcpioneer.TCPDaemon(tcpioneer.DNS, false)
+		tcpioneer.TCPDaemon(":443", true)
+		tcpioneer.TCPDaemon(":80", true)
+		tcpioneer.UDPDaemon(443, true)
 	}
 
 	fmt.Println("Service Start")
+	if tcpioneer.DNS == "" {
+		tcpioneer.DNSRecvDaemon()
+	} else {
+		tcpioneer.TCPDaemon(tcpioneer.DNS, false)
+		tcpioneer.DNSDaemon()
+	}
+
 	tcpioneer.Wait()
 }
 

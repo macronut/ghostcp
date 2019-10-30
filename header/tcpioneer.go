@@ -340,10 +340,7 @@ func LoadConfig() error {
 						}
 					}
 				} else {
-					if keys[0] == "local-dns" {
-						LocalDNS = true
-						logPrintln(2, "local-dns")
-					} else if keys[0] == "ipv6" {
+					if keys[0] == "ipv6" {
 						IPv6Enable = true
 						logPrintln(2, string(line))
 					} else if keys[0] == "forward" {
