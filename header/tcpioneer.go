@@ -61,27 +61,27 @@ func logPrintln(level int, v ...interface{}) {
 	}
 }
 
-func domainLookup(qname string) Config {
+func domainLookup(qname string) (Config, bool) {
 	config, ok := DomainMap[qname]
 	if ok {
-		return config
+		return config, true
 	}
 
 	offset := 0
 	for i := 0; i < 2; i++ {
 		off := strings.Index(qname[offset:], ".")
 		if off == -1 {
-			return Config{0, 0, 0, 0, 0, 0, nil, nil}
+			break
 		}
 		offset += off
 		config, ok = DomainMap[qname[offset:]]
 		if ok {
-			return config
+			return config, true
 		}
 		offset++
 	}
 
-	return Config{0, 0, 0, 0, 0, 0, nil, nil}
+	return Config{0, 0, 0, 0, 0, 0, nil, nil}, false
 }
 
 func getSNI(b []byte) (offset int, length int) {

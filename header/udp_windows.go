@@ -60,8 +60,8 @@ func DNSDaemon() {
 				continue
 			}
 
-			config := domainLookup(qname)
-			if config.Option > 0 || config.Answers4 != nil || config.Answers6 != nil {
+			config, ok := domainLookup(qname)
+			if ok {
 				var anCount uint16 = 0
 				var answers []byte = nil
 
@@ -278,9 +278,9 @@ func DNSRecvDaemon() {
 				continue
 			}
 
-			config := domainLookup(qname)
+			config, ok := domainLookup(qname)
 
-			if config.Answers4 != nil || config.Answers6 != nil {
+			if ok && (config.Answers4 != nil || config.Answers6 != nil) {
 				var anCount uint16 = 0
 				var answers []byte = nil
 
