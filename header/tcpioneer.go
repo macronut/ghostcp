@@ -39,6 +39,7 @@ var wg sync.WaitGroup
 var IPv6Enable = false
 var LogLevel = 0
 var Forward bool = false
+var TFOEnable = false
 
 const (
 	OPT_TTL   = 0x001
@@ -173,7 +174,7 @@ func getMyIPv6() net.IP {
 func LoadConfig() error {
 	DomainMap = make(map[string]Config)
 	IPMap = make(map[string]IPConfig)
-	OptionMap = make(map[string][]byte)
+
 	conf, err := os.Open("config")
 	if err != nil {
 		return err
@@ -265,6 +266,7 @@ func LoadConfig() error {
 					} else if keys[0] == "tcpfastopen" {
 						if keys[1] == "true" {
 							option |= OPT_TFO
+							TFOEnable = true
 						} else {
 							option &= ^uint32(OPT_TFO)
 						}
@@ -361,6 +363,10 @@ func LoadConfig() error {
 				}
 			}
 		}
+	}
+
+	if TFOEnable {
+		CookiesMap = make(map[string][]byte)
 	}
 
 	return nil
