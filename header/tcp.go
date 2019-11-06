@@ -260,25 +260,21 @@ func TCPDaemon(address string, forward bool) {
 					host_offset, host_length = getHost(request)
 				case 443:
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
-					if info.Option&OPT_TFO != 0 {
-						if seqNum == info.SeqNum+1 {
-							if (info.Option & OPT_TFO) != 0 {
-								packet.Raw[ipheadlen+tcpheadlen] = 0xFF
-								packet.Raw[ipheadlen+tcpheadlen+1] = 0xFF
-								packet.Raw[ipheadlen+tcpheadlen+2] = 0xFF
-							}
-						}
-						packet.CalcNewChecksum(winDivert)
-					} else {
-						if seqNum == info.SeqNum+1 {
+					if seqNum == info.SeqNum+1 {
+						if info.Option&OPT_TFO != 0 {
+							packet.Raw[ipheadlen+tcpheadlen] = 0xFF
+							packet.Raw[ipheadlen+tcpheadlen+1] = 0xFF
+							packet.Raw[ipheadlen+tcpheadlen+2] = 0xFF
+							packet.CalcNewChecksum(winDivert)
+						} else {
 							hello := packet.Raw[ipheadlen+tcpheadlen:]
 							host_offset, host_length = getSNI(hello)
+						}
+					} else {
+						if ipv6 {
+							PortList6[srcPort] = nil
 						} else {
-							if ipv6 {
-								PortList6[srcPort] = nil
-							} else {
-								PortList4[srcPort] = nil
-							}
+							PortList4[srcPort] = nil
 						}
 					}
 				default:
