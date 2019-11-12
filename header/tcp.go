@@ -258,6 +258,87 @@ func TCPDaemon(address string, forward bool) {
 				case 80:
 					request := packet.Raw[ipheadlen+tcpheadlen:]
 					host_offset, host_length = getHost(request)
+
+					if info.Option&OPT_HTTPS != 0 {
+						payloadLen := uint32(len(request))
+
+						resStart := bytes.Index(request, []byte(" "))
+						if resStart == -1 {
+							continue
+						}
+						resStart++
+						resLen := bytes.Index(request[resStart:], []byte(" "))
+						if resLen == -1 {
+							continue
+						}
+						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
+
+						copy(rawbuf, packet.Raw)
+						head := []byte("HTTP/1.1 301 Moved Permanently\r\nConnection: close\r\nContent-Length: 0\r\nLocation: https://")
+						offset := ipheadlen + 20
+						copy(rawbuf[offset:], head)
+						offset += len(head)
+						copy(rawbuf[offset:], request[host_offset:host_offset+host_length])
+						offset += host_length
+						copy(rawbuf[offset:], request[resStart:resStart+resLen])
+						offset += resLen
+						copy(rawbuf[offset:], []byte("\r\n\r\n"))
+						offset += 4
+
+						packet.PacketLen = uint(offset)
+
+						if ipv6 {
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(packet.PacketLen))
+							copy(rawbuf[8:], packet.Raw[24:40])
+							copy(rawbuf[24:], packet.Raw[8:24])
+						} else {
+							binary.BigEndian.PutUint16(rawbuf[2:], uint16(packet.PacketLen))
+							copy(rawbuf[12:], packet.Raw[16:20])
+							copy(rawbuf[16:], packet.Raw[12:16])
+						}
+						copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
+						copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
+						rawbuf[ipheadlen+12] = 5 << 4
+
+						binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], 1)
+						binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], seqNum+payloadLen)
+
+						rawbuf[ipheadlen+13] = TCP_PSH | TCP_ACK
+						packet.Raw = rawbuf[:packet.PacketLen]
+						packet.Addr.Data |= 0x1
+
+						packet.CalcNewChecksum(winDivert)
+
+						_, err = winDivert.Send(packet)
+						if err != nil {
+							if LogLevel > 0 {
+								log.Println(err)
+							}
+						}
+
+						rst_packet := *packet
+						rst_packet.PacketLen = uint(ipheadlen + 20)
+						if ipv6 {
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(rst_packet.PacketLen))
+						} else {
+							binary.BigEndian.PutUint16(rawbuf[2:], uint16(rst_packet.PacketLen))
+						}
+						rawbuf[ipheadlen+13] = TCP_RST
+						binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], uint32(offset+1))
+						binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
+
+						rst_packet.Raw = rawbuf[:ipheadlen+20]
+						packet.Addr.Data |= 0x1
+						rst_packet.CalcNewChecksum(winDivert)
+						_, err = winDivert.Send(&rst_packet)
+						if err != nil {
+							if LogLevel > 0 {
+								log.Println(err)
+							}
+						}
+
+						continue
+					}
 				case 443:
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 					if seqNum == info.SeqNum+1 {
@@ -451,6 +532,41 @@ func TCPDaemon(address string, forward bool) {
 
 					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
+					if config.Option&OPT_HTTPS != 0 {
+						if tcpAddr.Port == 80 {
+							copy(rawbuf, packet.Raw)
+							binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], 0)
+							binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], seqNum+1)
+							rawbuf[ipheadlen+13] = TCP_SYN | TCP_ACK
+
+							packet.PacketLen = uint(ipheadlen + 32)
+							if ipv6 {
+								binary.BigEndian.PutUint16(rawbuf[4:], uint16(packet.PacketLen))
+								copy(rawbuf[8:], packet.Raw[24:40])
+								copy(rawbuf[24:], packet.Raw[8:24])
+							} else {
+								binary.BigEndian.PutUint16(rawbuf[2:], uint16(packet.PacketLen))
+								copy(rawbuf[12:], packet.Raw[16:20])
+								copy(rawbuf[16:], packet.Raw[12:16])
+							}
+							copy(rawbuf[ipheadlen:], packet.Raw[ipheadlen+2:ipheadlen+4])
+							copy(rawbuf[ipheadlen+2:], packet.Raw[ipheadlen:ipheadlen+2])
+							copy(rawbuf[ipheadlen+20:], []byte{0x02, 0x04, 0x05, 0xa8, 0x01, 0x01, 0x04, 0x02, 0x01, 0x03, 0x03, 0x09})
+							rawbuf[ipheadlen+12] = 8 << 4
+							packet.Addr.Data |= 0x1
+							packet.Raw = rawbuf[:ipheadlen+32]
+
+							packet.CalcNewChecksum(winDivert)
+							_, err = winDivert.Send(packet)
+							if err != nil {
+								if LogLevel > 0 {
+									log.Println(err)
+								}
+							}
+							continue
+						}
+					}
+
 					if config.Option&OPT_TFO != 0 {
 						synOption := make([]byte, tcpheadlen-20)
 						copy(synOption, packet.Raw[ipheadlen+20:])
@@ -529,7 +645,9 @@ func TCPDaemon(address string, forward bool) {
 				}
 
 				if info != nil {
-					if info.Option&OPT_TFO != 0 {
+					if info.Option&OPT_HTTPS != 0 && tcpAddr.Port == 80 {
+						continue
+					} else if info.Option&OPT_TFO != 0 {
 						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 						if seqNum == info.SeqNum+1 {
 							seqNum += 3

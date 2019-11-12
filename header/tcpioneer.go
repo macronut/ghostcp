@@ -52,6 +52,7 @@ const (
 	OPT_BAD   = 0x080
 	OPT_IPOPT = 0x100
 	OPT_PSH   = 0x200
+	OPT_HTTPS = 0x400
 )
 
 var Logger *log.Logger
@@ -145,6 +146,7 @@ func getHost(b []byte) (offset int, length int) {
 	if offset == -1 {
 		return 0, 0
 	}
+	offset += 6
 	length = bytes.Index(b[offset:], []byte("\r\n"))
 	if offset == -1 {
 		return 0, 0
@@ -290,6 +292,13 @@ func LoadConfig() error {
 							option |= OPT_PSH
 						} else {
 							option &= ^uint32(OPT_PSH)
+						}
+						logPrintln(2, string(line))
+					} else if keys[0] == "https" {
+						if keys[1] == "true" {
+							option |= OPT_HTTPS
+						} else {
+							option &= ^uint32(OPT_HTTPS)
 						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "max-ttl" {
