@@ -36,8 +36,9 @@ var DomainMap map[string]Config
 var IPMap map[string]IPConfig
 var wg sync.WaitGroup
 
-var IPv6Enable = false
+var SubdomainDepth = 2
 var LogLevel = 0
+var IPv6Enable = false
 var Forward bool = false
 var TFOEnable = false
 
@@ -70,7 +71,7 @@ func domainLookup(qname string) (Config, bool) {
 	}
 
 	offset := 0
-	for i := 0; i < 2; i++ {
+	for i := 0; i < SubdomainDepth; i++ {
 		off := strings.Index(qname[offset:], ".")
 		if off == -1 {
 			break
@@ -309,6 +310,12 @@ func LoadConfig() error {
 						}
 						maxTTL = byte(ttl)
 						logPrintln(2, string(line))
+					} else if keys[0] == "subdomain" {
+						SubdomainDepth, err = strconv.Atoi(keys[1])
+						if err != nil {
+							log.Println(string(line), err)
+							return err
+						}
 					} else if keys[0] == "log" {
 						LogLevel, err = strconv.Atoi(keys[1])
 						if err != nil {
