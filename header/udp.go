@@ -202,10 +202,9 @@ func DNSDaemon() {
 
 							ips := getAnswers(response[off:], count)
 							for _, ip := range ips {
-								ipConfig, ok := IPMap[ip]
-								option := ipConfig.Option | config.Option
+								_, ok := IPLookup(ip)
 								if ok == false {
-									IPMap[ip] = IPConfig{option, config.TTL, config.MAXTTL, config.MSS}
+									IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
 								}
 							}
 
@@ -389,8 +388,8 @@ func UDPDaemon(dstPort int, forward bool) {
 				return
 			}
 
-			_, ok := IPMap[packet.DstIP().String()]
-			if !ok {
+			config, ok := IPLookup(packet.DstIP().String())
+			if !ok || config.Option == 0 {
 				_, err = winDivert.Send(packet)
 				if err != nil {
 					if LogLevel > 0 {

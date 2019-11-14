@@ -520,7 +520,7 @@ func TCPDaemon(address string, forward bool) {
 				}
 			} else if packet.Raw[ipheadlen+13] == TCP_SYN {
 				dstAddr := packet.DstIP().String()
-				config, ok := IPMap[dstAddr]
+				config, ok := IPLookup(dstAddr)
 
 				if ok && config.Option != 0 {
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])

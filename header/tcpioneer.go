@@ -40,6 +40,7 @@ var SubdomainDepth = 2
 var LogLevel = 0
 var IPv6Enable = false
 var Forward bool = false
+var IPMode = false
 var TFOEnable = false
 
 const (
@@ -70,6 +71,10 @@ func domainLookup(qname string) (Config, bool) {
 		return config, true
 	}
 
+	if SubdomainDepth == 0 {
+		return Config{0, 0, 0, 0, 0, 0, nil, nil}, true
+	}
+
 	offset := 0
 	for i := 0; i < SubdomainDepth; i++ {
 		off := strings.Index(qname[offset:], ".")
@@ -85,6 +90,42 @@ func domainLookup(qname string) (Config, bool) {
 	}
 
 	return Config{0, 0, 0, 0, 0, 0, nil, nil}, false
+}
+
+func IPLookup(addr string) (IPConfig, bool) {
+	config, ok := IPMap[addr]
+	if ok {
+		return config, true
+	}
+
+	if IPMode {
+		ip := net.ParseIP(addr)
+		ip4 := ip.To4()
+		if ip4 != nil {
+			for i := 31; i >= 8; i-- {
+				mask := net.CIDRMask(i, 32)
+				addr := fmt.Sprintf("%s/%d", ip.Mask(mask).String(), i)
+				config, ok = IPMap[addr]
+				if ok {
+					return config, true
+				}
+			}
+		} else {
+			for i := 64; i >= 16; i -= 16 {
+				mask := net.CIDRMask(i, 32)
+				addr := fmt.Sprintf("%s/%d", ip.Mask(mask).String(), i)
+				config, ok = IPMap[addr]
+				if ok {
+					return config, true
+				}
+			}
+		}
+
+		config, ok := IPMap["0.0.0.0/0"]
+		return config, ok
+	}
+
+	return config, false
 }
 
 func getSNI(b []byte) (offset int, length int) {
@@ -373,7 +414,20 @@ func LoadConfig() error {
 							}
 							go TCPDaemon(keys[0], false)
 						} else {
-							DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, nil}
+							if strings.Index(keys[0], "/") > 0 {
+								_, ipnet, err := net.ParseCIDR(keys[0])
+								if err == nil {
+									IPMap[ipnet.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
+									IPMode = true
+								}
+							} else {
+								ip := net.ParseIP(keys[0])
+								if ip != nil {
+									IPMap[keys[0]] = IPConfig{option, minTTL, maxTTL, syncMSS}
+								} else {
+									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, nil}
+								}
+							}
 						}
 					}
 				}
