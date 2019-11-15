@@ -305,30 +305,35 @@ func DNSRecvDaemon() {
 				}
 
 				if noRecord {
-					packet.Raw = packet.Raw[:ipheadlen+udpheadlen+off]
-					binary.BigEndian.PutUint16(packet.Raw[ipheadlen+14:], 0)
-					packetsize := len(packet.Raw)
+					logPrintln(3, qname, qtype, "NoRecord")
 
+					udpsize := udpheadlen + off
+					packetsize := ipheadlen + udpsize
+					binary.BigEndian.PutUint16(packet.Raw[ipheadlen+14:], 0)
+					binary.BigEndian.PutUint16(packet.Raw[ipheadlen+4:], uint16(udpsize))
 					if ipv6 {
 						binary.BigEndian.PutUint16(packet.Raw[4:], uint16(packetsize-ipheadlen))
 					} else {
 						binary.BigEndian.PutUint16(packet.Raw[2:], uint16(packetsize))
 					}
+					packet.Raw = packet.Raw[:packetsize]
 
 					packet.PacketLen = uint(packetsize)
 					packet.CalcNewChecksum(winDivert)
 				} else {
 					if anCount > 0 {
-						logPrintln(2, qname)
+						logPrintln(2, qname, qtype)
 						copy(rawbuf, packet.Raw[:ipheadlen+udpheadlen+off])
 						binary.BigEndian.PutUint16(rawbuf[ipheadlen+14:], anCount)
 						copy(rawbuf[ipheadlen+udpheadlen+off:], answers)
 
-						packetsize := ipheadlen + udpheadlen + off + len(answers)
+						udpsize := udpheadlen + off + len(answers)
+						packetsize := ipheadlen + udpsize
+						binary.BigEndian.PutUint16(rawbuf[ipheadlen+4:], uint16(udpsize))
 						if ipv6 {
-							binary.BigEndian.PutUint16(packet.Raw[4:], uint16(packetsize-ipheadlen))
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(packetsize-ipheadlen))
 						} else {
-							binary.BigEndian.PutUint16(packet.Raw[2:], uint16(packetsize))
+							binary.BigEndian.PutUint16(rawbuf[2:], uint16(packetsize))
 						}
 
 						packet.PacketLen = uint(packetsize)
@@ -344,6 +349,7 @@ func DNSRecvDaemon() {
 					ips := getAnswers(response[off:], count)
 
 					for _, ip := range ips {
+						logPrintln(3, ip)
 						IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
 					}
 				}
