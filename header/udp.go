@@ -349,8 +349,11 @@ func DNSRecvDaemon() {
 					ips := getAnswers(response[off:], count)
 
 					for _, ip := range ips {
-						logPrintln(3, ip)
-						IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
+						_, ok := IPLookup(ip)
+						if ok == false {
+							logPrintln(3, ip)
+							IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
+						}
 					}
 				}
 			}
