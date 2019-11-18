@@ -190,12 +190,15 @@ func DNSDaemon() {
 						for _, ip := range ips {
 							_, ok := IPLookup(ip)
 							if IPBlock && !ok {
-								ipconfig, ok := IPBlockLookup(ip)
+								var ipconfig IPConfig
+								ipconfig, ok = IPBlockLookup(ip)
 								if ok {
+									logPrintln(3, ip, ipconfig.Option)
 									IPMap[ip] = ipconfig
 								}
 							}
 							if !ok {
+								logPrintln(3, ip, config.Option)
 								IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
 							}
 						}
@@ -230,7 +233,7 @@ func DNSDaemon() {
 func DNSRecvDaemon() {
 	wg.Add(1)
 
-	filter := "((outbound and loopback) or inbound) and udp.SrcPort == 53"
+	filter := "udp.SrcPort == 53"
 	winDivert, err := godivert.NewWinDivertHandle(filter)
 	if err != nil {
 		if LogLevel > 0 {
@@ -325,13 +328,15 @@ func DNSRecvDaemon() {
 					for _, ip := range ips {
 						_, ok := IPLookup(ip)
 						if IPBlock && !ok {
-							ipconfig, ok := IPBlockLookup(ip)
+							var ipconfig IPConfig
+							ipconfig, ok = IPBlockLookup(ip)
 							if ok {
+								logPrintln(3, ip, ipconfig.Option)
 								IPMap[ip] = ipconfig
 							}
 						}
 						if !ok {
-							logPrintln(3, ip)
+							logPrintln(3, ip, config.Option)
 							IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
 						}
 					}
