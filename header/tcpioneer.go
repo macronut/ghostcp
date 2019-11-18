@@ -19,8 +19,8 @@ type Config struct {
 	TTL      byte
 	MAXTTL   byte
 	MSS      uint16
-	ANCount4 uint16
-	ANCount6 uint16
+	ANCount4 int16
+	ANCount6 int16
 	Answers4 []byte
 	Answers6 []byte
 }
@@ -38,8 +38,8 @@ var wg sync.WaitGroup
 
 var SubdomainDepth = 2
 var LogLevel = 0
-var IPv6Enable = false
 var Forward bool = false
+var IPBlock = false
 var IPMode = false
 var TFOEnable = false
 
@@ -126,6 +126,36 @@ func IPLookup(addr string) (IPConfig, bool) {
 	}
 
 	return config, false
+}
+
+func IPBlockLookup(addr string) (IPConfig, bool) {
+	var config IPConfig
+	ok := false
+
+	ip := net.ParseIP(addr)
+	ip4 := ip.To4()
+	if ip4 != nil {
+		for i := 31; i >= 8; i-- {
+			mask := net.CIDRMask(i, 32)
+			addr := fmt.Sprintf("%s/%d", ip.Mask(mask).String(), i)
+			config, ok = IPMap[addr]
+			if ok {
+				return config, true
+			}
+		}
+	} else {
+		for i := 64; i >= 16; i -= 16 {
+			mask := net.CIDRMask(i, 32)
+			addr := fmt.Sprintf("%s/%d", ip.Mask(mask).String(), i)
+			config, ok = IPMap[addr]
+			if ok {
+				return config, true
+			}
+		}
+	}
+
+	config, ok = IPMap["0.0.0.0/0"]
+	return config, ok
 }
 
 func getSNI(b []byte) (offset int, length int) {
@@ -231,6 +261,8 @@ func LoadConfig() error {
 	var minTTL byte = 0
 	var maxTTL byte = 0
 	var syncMSS uint16 = 0
+	ipv6Enable := true
+	ipv4Enable := true
 
 	for {
 		line, _, err := br.ReadLine()
@@ -242,16 +274,40 @@ func LoadConfig() error {
 				keys := strings.SplitN(string(line), "=", 2)
 				if len(keys) > 1 {
 					if keys[0] == "server" {
-						DNS = keys[1]
-						tcpAddr, err := net.ResolveTCPAddr("tcp", keys[1])
+						var tcpAddr *net.TCPAddr
+						var err error
+						if ipv6Enable {
+							if ipv4Enable {
+								tcpAddr, err = net.ResolveTCPAddr("tcp", keys[1])
+							} else {
+								tcpAddr, err = net.ResolveTCPAddr("tcp6", keys[1])
+							}
+						} else {
+							tcpAddr, err = net.ResolveTCPAddr("tcp4", keys[1])
+						}
 						if err != nil {
 							log.Println(string(line), err)
 							return err
 						}
+						DNS = tcpAddr.String()
 						IPMap[tcpAddr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
 						logPrintln(2, string(line))
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
+						logPrintln(2, string(line))
+					} else if keys[0] == "ipv6" {
+						if keys[1] == "true" {
+							ipv6Enable = true
+						} else {
+							ipv6Enable = false
+						}
+						logPrintln(2, string(line))
+					} else if keys[0] == "ipv4" {
+						if keys[1] == "true" {
+							ipv4Enable = true
+						} else {
+							ipv4Enable = false
+						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "ttl" {
 						ttl, err := strconv.Atoi(keys[1])
@@ -369,7 +425,7 @@ func LoadConfig() error {
 							if strings.HasSuffix(keys[1], "::") {
 								prefix := net.ParseIP(keys[1])
 								if prefix != nil {
-									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, prefix}
+									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, -1, nil, prefix}
 								}
 							} else {
 								ips := strings.Split(keys[1], ",")
@@ -385,7 +441,15 @@ func LoadConfig() error {
 								}
 								count4, answer4 := packAnswers(ips, 1)
 								count6, answer6 := packAnswers(ips, 28)
-								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, uint16(count4), uint16(count6), answer4, answer6}
+
+								if ipv4Enable && count4 == 0 {
+									count4 = -1
+								}
+								if ipv6Enable && count6 == 0 {
+									count6 = -1
+								}
+
+								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, int16(count4), int16(count6), answer4, answer6}
 							}
 						} else {
 							prefix := net.ParseIP(keys[1])
@@ -400,7 +464,10 @@ func LoadConfig() error {
 					}
 				} else {
 					if keys[0] == "ipv6" {
-						IPv6Enable = true
+						ipv6Enable = true
+						logPrintln(2, string(line))
+					} else if keys[0] == "ipv4" {
+						ipv4Enable = true
 						logPrintln(2, string(line))
 					} else if keys[0] == "forward" {
 						Forward = true
@@ -418,14 +485,28 @@ func LoadConfig() error {
 								_, ipnet, err := net.ParseCIDR(keys[0])
 								if err == nil {
 									IPMap[ipnet.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
-									IPMode = true
+									IPBlock = true
 								}
 							} else {
+								var count4 int16
+								var count6 int16
+								if ipv4Enable {
+									count4 = -1
+								} else {
+									count4 = 0
+								}
+								if ipv6Enable {
+									count6 = -1
+								} else {
+									count6 = 0
+								}
+
 								ip := net.ParseIP(keys[0])
+
 								if ip != nil {
 									IPMap[keys[0]] = IPConfig{option, minTTL, maxTTL, syncMSS}
 								} else {
-									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, 0, nil, nil}
+									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, count4, count6, nil, nil}
 								}
 							}
 						}

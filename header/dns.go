@@ -233,13 +233,19 @@ func packAnswers(ips []string, qtype int) (int, []byte) {
 	count := 0
 	for _, ip := range ips {
 		ip4 := net.ParseIP(ip).To4()
-		if ip4 != nil && qtype == 1 {
-			count++
-			totalLen += 16
+		if ip4 != nil {
+			if qtype == 1 {
+				count++
+				totalLen += 16
+			}
 		} else if qtype == 28 {
 			count++
 			totalLen += 28
 		}
+	}
+
+	if count == 0 {
+		return 0, nil
 	}
 
 	answers := make([]byte, totalLen)
