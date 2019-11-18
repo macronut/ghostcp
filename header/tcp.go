@@ -288,7 +288,7 @@ func TCPDaemon(address string, forward bool) {
 						packet.PacketLen = uint(offset)
 
 						if ipv6 {
-							binary.BigEndian.PutUint16(rawbuf[4:], uint16(packet.PacketLen))
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(int(packet.PacketLen)-ipheadlen))
 							copy(rawbuf[8:], packet.Raw[24:40])
 							copy(rawbuf[24:], packet.Raw[8:24])
 						} else {
@@ -319,7 +319,7 @@ func TCPDaemon(address string, forward bool) {
 						rst_packet := *packet
 						rst_packet.PacketLen = uint(ipheadlen + 20)
 						if ipv6 {
-							binary.BigEndian.PutUint16(rawbuf[4:], uint16(rst_packet.PacketLen))
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(int(rst_packet.PacketLen)-ipheadlen))
 						} else {
 							binary.BigEndian.PutUint16(rawbuf[2:], uint16(rst_packet.PacketLen))
 						}
@@ -541,7 +541,7 @@ func TCPDaemon(address string, forward bool) {
 
 							packet.PacketLen = uint(ipheadlen + 32)
 							if ipv6 {
-								binary.BigEndian.PutUint16(rawbuf[4:], uint16(packet.PacketLen))
+								binary.BigEndian.PutUint16(rawbuf[4:], uint16(int(packet.PacketLen)-ipheadlen))
 								copy(rawbuf[8:], packet.Raw[24:40])
 								copy(rawbuf[24:], packet.Raw[8:24])
 							} else {
@@ -599,7 +599,7 @@ func TCPDaemon(address string, forward bool) {
 
 						if ipv6 {
 							PortList6[srcPort].SeqNum = seqNum
-							binary.BigEndian.PutUint16(rawbuf[4:], uint16(packet.PacketLen))
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(int(packet.PacketLen)-ipheadlen))
 						} else {
 							PortList4[srcPort].SeqNum = seqNum
 							binary.BigEndian.PutUint16(rawbuf[2:], uint16(packet.PacketLen))
