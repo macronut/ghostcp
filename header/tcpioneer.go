@@ -48,13 +48,13 @@ const (
 	OPT_MSS   = 0x002
 	OPT_MD5   = 0x004
 	OPT_ACK   = 0x008
-	OPT_SYN   = 0x010
-	OPT_CSUM  = 0x020
-	OPT_TFO   = 0x040
-	OPT_BAD   = 0x080
-	OPT_IPOPT = 0x100
-	OPT_PSH   = 0x200
-	OPT_HTTPS = 0x400
+	OPT_CSUM  = 0x010
+	OPT_BAD   = 0x020
+	OPT_IPOPT = 0x040
+	OPT_SEQ   = 0x080
+	OPT_HTTPS = 0x100
+	OPT_TFO   = 0x10000
+	OPT_SYN   = 0x20000
 )
 
 var Logger *log.Logger
@@ -159,43 +159,46 @@ func IPBlockLookup(addr string) (IPConfig, bool) {
 }
 
 func getSNI(b []byte) (offset int, length int) {
+	payloadLen := len(b)
+	if payloadLen < 11+32 {
+		return 0, 0
+	}
 	if b[0] != 0x16 {
 		return 0, 0
 	}
-	if len(b) < 5 {
+	version := binary.BigEndian.Uint16(b[1:3])
+	if (version & 0xFFF8) != 0x0300 {
 		return 0, 0
 	}
-	Version := binary.BigEndian.Uint16(b[1:3])
-	if (Version & 0xFFF8) != 0x0300 {
+	handshakeType := b[5]
+	if handshakeType != 0x1 {
 		return 0, 0
 	}
-	Length := binary.BigEndian.Uint16(b[3:5])
-	if len(b) <= int(Length)-5 {
-		return 0, 0
-	}
+	//Length := binary.BigEndian.Uint16(b[3:5])
+	//version = binary.BigEndian.Uint16(b[9:11])
 	offset = 11 + 32
 	SessionIDLength := b[offset]
 	offset += 1 + int(SessionIDLength)
-	if offset+2 > len(b) {
+	if offset+2 >= payloadLen {
 		return 0, 0
 	}
 	CipherSuitersLength := binary.BigEndian.Uint16(b[offset : offset+2])
 	offset += 2 + int(CipherSuitersLength)
-	if offset >= len(b) {
+	if offset >= payloadLen {
 		return 0, 0
 	}
 	CompressionMethodsLenght := b[offset]
 	offset += 1 + int(CompressionMethodsLenght)
-	if offset+2 > len(b) {
+	if offset+2 > payloadLen {
 		return 0, 0
 	}
 	ExtensionsLength := binary.BigEndian.Uint16(b[offset : offset+2])
 	offset += 2
 	ExtensionsEnd := offset + int(ExtensionsLength)
-	if ExtensionsEnd > len(b) {
-		return 0, 0
-	}
 	for offset < ExtensionsEnd {
+		if offset+4 > payloadLen {
+			return 0, 0
+		}
 		ExtensionType := binary.BigEndian.Uint16(b[offset : offset+2])
 		offset += 2
 		ExtensionLength := binary.BigEndian.Uint16(b[offset : offset+2])
@@ -203,8 +206,14 @@ func getSNI(b []byte) (offset int, length int) {
 		if ExtensionType == 0 {
 			offset += 2
 			offset++
+			if offset+2 > payloadLen {
+				return 0, 0
+			}
 			ServerNameLength := binary.BigEndian.Uint16(b[offset : offset+2])
 			offset += 2
+			if offset+int(ServerNameLength) > payloadLen {
+				return offset, payloadLen - offset
+			}
 			return offset, int(ServerNameLength)
 		} else {
 			offset += int(ExtensionLength)
@@ -385,11 +394,11 @@ func LoadConfig() error {
 							option &= ^uint32(OPT_IPOPT)
 						}
 						logPrintln(2, string(line))
-					} else if keys[0] == "psh" {
+					} else if keys[0] == "seq" {
 						if keys[1] == "true" {
-							option |= OPT_PSH
+							option |= OPT_SEQ
 						} else {
-							option &= ^uint32(OPT_PSH)
+							option &= ^uint32(OPT_SEQ)
 						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "https" {

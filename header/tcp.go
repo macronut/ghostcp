@@ -347,6 +347,12 @@ func TCPDaemon(address string, forward bool) {
 							packet.Raw[ipheadlen+tcpheadlen+1] = 0xFF
 							packet.Raw[ipheadlen+tcpheadlen+2] = 0xFF
 							packet.CalcNewChecksum(winDivert)
+						} else if info.Option&OPT_SYN != 0 {
+							packet.Raw[ipheadlen+13] = TCP_SYN
+							seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
+							binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], seqNum-1)
+							binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], 0)
+							packet.CalcNewChecksum(winDivert)
 						} else {
 							hello := packet.Raw[ipheadlen+tcpheadlen:]
 							host_offset, host_length = getSNI(hello)
@@ -403,17 +409,13 @@ func TCPDaemon(address string, forward bool) {
 						rawbuf[fakeipheadlen+12] = 4 << 4
 					}
 
-					if (info.Option & OPT_SYN) != 0 {
+					if (info.Option & OPT_SEQ) != 0 {
 						rawbuf[fakeipheadlen+13] = TCP_SYN
 
 						seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
 						seqNum += 65536
-						binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], seqNum)
-						if (info.Option & OPT_ACK) != 0 {
-							rawbuf[fakeipheadlen+13] |= TCP_ACK
-						} else {
-							binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
-						}
+						binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+4:], seqNum)
+						binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+8:], 0)
 					}
 
 					fake_packet.Raw = rawbuf[:len(packet.Raw)]
@@ -423,7 +425,7 @@ func TCPDaemon(address string, forward bool) {
 						binary.BigEndian.PutUint16(rawbuf[fakeipheadlen+16:], 0)
 					}
 
-					if (info.Option & (OPT_ACK | OPT_SYN)) == 0 {
+					if (info.Option & (OPT_ACK | OPT_SEQ)) == 0 {
 						_, err = winDivert.Send(&fake_packet)
 						if err != nil {
 							if LogLevel > 0 {
@@ -463,7 +465,7 @@ func TCPDaemon(address string, forward bool) {
 						continue
 					}
 
-					if (info.Option & (OPT_ACK | OPT_SYN)) != 0 {
+					if (info.Option & OPT_ACK) != 0 {
 						_, err = winDivert.Send(&fake_packet)
 						if err != nil {
 							if LogLevel > 0 {
@@ -471,7 +473,7 @@ func TCPDaemon(address string, forward bool) {
 							}
 							continue
 						}
-						time.Sleep(time.Microsecond * 10)
+						time.Sleep(time.Microsecond * 8)
 					}
 
 					_, err = winDivert.Send(&fake_packet)
