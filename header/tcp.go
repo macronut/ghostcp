@@ -229,7 +229,7 @@ func TCPDaemon(address string, forward bool) {
 					info = PortList4[srcPort]
 				}
 
-				if info == nil {
+				if info == nil || info.Option == 0 {
 					_, err = winDivert.Send(packet)
 					if err != nil {
 						if LogLevel > 0 {
@@ -344,10 +344,8 @@ func TCPDaemon(address string, forward bool) {
 						}
 
 						continue
-					} else {
-						if payloadLen > 0 {
-							host_offset, host_length = getHost(request)
-						}
+					} else if payloadLen > 0 {
+						host_offset, host_length = getHost(request)
 					}
 				case 443:
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
@@ -386,114 +384,73 @@ func TCPDaemon(address string, forward bool) {
 					host_length = payloadLen
 				}
 
-				if info.Option != 0 && host_length > 0 {
-					fake_packet := *packet
-					copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-
-					if info.TTL > 0 {
-						if ipv6 {
-							rawbuf[7] = byte(info.TTL)
-						} else {
-							rawbuf[8] = byte(info.TTL)
-						}
-					}
-
-					fakeipheadlen := ipheadlen
-					if (info.Option & OPT_IPOPT) != 0 {
-						fakeipheadlen += 32
-						copy(rawbuf[fakeipheadlen:], packet.Raw[ipheadlen:ipheadlen+tcpheadlen])
-						if ipv6 {
-						} else {
-							rawbuf[0] = rawbuf[0]&0xF0 | byte(fakeipheadlen/4)
-						}
-						for i := 0; i < 31; i++ {
-							rawbuf[ipheadlen+i] = 1
-						}
-						rawbuf[ipheadlen+31] = 0
-					}
-
-					if (info.Option & OPT_MD5) != 0 {
-						copy(rawbuf[fakeipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-						rawbuf[fakeipheadlen+12] = 10 << 4
-					}
-
-					if (info.Option & OPT_ACK) != 0 {
-						ackNum := binary.BigEndian.Uint32(rawbuf[fakeipheadlen+8:])
-						ackNum += uint32(binary.BigEndian.Uint16(rawbuf[fakeipheadlen+14:]))
-						binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+8:], ackNum)
-					}
-
-					if (info.Option & OPT_BAD) != 0 {
-						rawbuf[fakeipheadlen+12] = 4 << 4
-					}
-
-					if (info.Option & OPT_SEQ) != 0 {
-						rawbuf[fakeipheadlen+13] = TCP_SYN
-
-						seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
-						seqNum += 65536
-						binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+4:], seqNum)
-						binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+8:], 0)
-					}
-
-					fake_packet.Raw = rawbuf[:len(packet.Raw)]
-					fake_packet.CalcNewChecksum(winDivert)
-
-					if (info.Option & OPT_CSUM) != 0 {
-						binary.BigEndian.PutUint16(rawbuf[fakeipheadlen+16:], 0)
-					}
-
-					if (info.Option & (OPT_ACK | OPT_SEQ)) == 0 {
-						_, err = winDivert.Send(&fake_packet)
-						if err != nil {
-							if LogLevel > 0 {
-								log.Println(err)
-							}
-							continue
-						}
-					}
-
-					host_cut_offset := host_offset + host_length/2
-					total_cut_offset := ipheadlen + tcpheadlen + host_cut_offset
-
-					tmp_rawbuf := make([]byte, 1500)
-					copy(tmp_rawbuf, packet.Raw[:total_cut_offset])
-					if ipv6 {
-						binary.BigEndian.PutUint16(tmp_rawbuf[4:], uint16(total_cut_offset-ipheadlen))
-						if info.MAXTTL > 0 {
-							tmp_rawbuf[7] = info.MAXTTL
-						}
-					} else {
-						binary.BigEndian.PutUint16(tmp_rawbuf[2:], uint16(total_cut_offset))
-						if info.MAXTTL > 0 {
-							tmp_rawbuf[8] = info.MAXTTL
-						}
-					}
-					tmp_rawbuf[ipheadlen+13] &= ^TCP_PSH
-
-					prefix_packet := *packet
-					prefix_packet.Raw = tmp_rawbuf[:total_cut_offset]
-					prefix_packet.PacketLen = uint(total_cut_offset)
-					prefix_packet.CalcNewChecksum(winDivert)
-					_, err = winDivert.Send(&prefix_packet)
+				if host_length == 0 {
+					_, err = winDivert.Send(packet)
 					if err != nil {
 						if LogLevel > 0 {
 							log.Println(err)
 						}
-						continue
 					}
+					continue
+				}
 
-					if (info.Option & OPT_ACK) != 0 {
-						_, err = winDivert.Send(&fake_packet)
-						if err != nil {
-							if LogLevel > 0 {
-								log.Println(err)
-							}
-							continue
-						}
-						time.Sleep(time.Microsecond * 8)
+				fake_packet := *packet
+				copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+
+				if info.TTL > 0 {
+					if ipv6 {
+						rawbuf[7] = byte(info.TTL)
+					} else {
+						rawbuf[8] = byte(info.TTL)
 					}
+				}
 
+				fakeipheadlen := ipheadlen
+				if (info.Option & OPT_IPOPT) != 0 {
+					fakeipheadlen += 32
+					copy(rawbuf[fakeipheadlen:], packet.Raw[ipheadlen:ipheadlen+tcpheadlen])
+					if ipv6 {
+					} else {
+						rawbuf[0] = rawbuf[0]&0xF0 | byte(fakeipheadlen/4)
+					}
+					for i := 0; i < 31; i++ {
+						rawbuf[ipheadlen+i] = 1
+					}
+					rawbuf[ipheadlen+31] = 0
+				}
+
+				if (info.Option & OPT_MD5) != 0 {
+					copy(rawbuf[fakeipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+					rawbuf[fakeipheadlen+12] = 10 << 4
+				}
+
+				if (info.Option & OPT_ACK) != 0 {
+					ackNum := binary.BigEndian.Uint32(rawbuf[fakeipheadlen+8:])
+					ackNum += uint32(binary.BigEndian.Uint16(rawbuf[fakeipheadlen+14:]))
+					binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+8:], ackNum)
+				}
+
+				if (info.Option & OPT_BAD) != 0 {
+					rawbuf[fakeipheadlen+12] = 4 << 4
+				}
+
+				if (info.Option & OPT_SEQ) != 0 {
+					rawbuf[fakeipheadlen+13] = TCP_SYN
+
+					seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
+					seqNum += 65536
+					binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+4:], seqNum)
+					binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+8:], 0)
+				}
+
+				fake_packet.Raw = rawbuf[:len(packet.Raw)]
+				fake_packet.CalcNewChecksum(winDivert)
+
+				if (info.Option & OPT_CSUM) != 0 {
+					binary.BigEndian.PutUint16(rawbuf[fakeipheadlen+16:], 0)
+				}
+
+				if (info.Option & (OPT_ACK | OPT_SEQ)) == 0 {
 					_, err = winDivert.Send(&fake_packet)
 					if err != nil {
 						if LogLevel > 0 {
@@ -501,42 +458,83 @@ func TCPDaemon(address string, forward bool) {
 						}
 						continue
 					}
+				}
 
-					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
-					copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-					copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
-					totallen := uint16(packet.PacketLen) - uint16(host_cut_offset)
-					if ipv6 {
-						binary.BigEndian.PutUint16(tmp_rawbuf[4:], totallen-uint16(ipheadlen))
-						if info.MAXTTL > 0 {
-							tmp_rawbuf[7] = info.MAXTTL + 1
-						}
-					} else {
-						binary.BigEndian.PutUint16(tmp_rawbuf[2:], totallen)
-						if info.MAXTTL > 0 {
-							tmp_rawbuf[8] = info.MAXTTL + 1
-						}
-					}
-					binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+uint32(host_cut_offset))
-					packet.Raw = tmp_rawbuf[:totallen]
-					packet.PacketLen = uint(totallen)
-					packet.CalcNewChecksum(winDivert)
+				host_cut_offset := host_offset + host_length/2
+				total_cut_offset := ipheadlen + tcpheadlen + host_cut_offset
 
-					_, err = winDivert.Send(packet)
-					if err != nil {
-						if LogLevel > 0 {
-							log.Println(err)
-						}
-						continue
+				tmp_rawbuf := make([]byte, 1500)
+				copy(tmp_rawbuf, packet.Raw[:total_cut_offset])
+				if ipv6 {
+					binary.BigEndian.PutUint16(tmp_rawbuf[4:], uint16(total_cut_offset-ipheadlen))
+					if info.MAXTTL > 0 {
+						tmp_rawbuf[7] = info.MAXTTL
 					}
 				} else {
-					_, err = winDivert.Send(packet)
+					binary.BigEndian.PutUint16(tmp_rawbuf[2:], uint16(total_cut_offset))
+					if info.MAXTTL > 0 {
+						tmp_rawbuf[8] = info.MAXTTL
+					}
+				}
+				tmp_rawbuf[ipheadlen+13] &= ^TCP_PSH
+
+				prefix_packet := *packet
+				prefix_packet.Raw = tmp_rawbuf[:total_cut_offset]
+				prefix_packet.PacketLen = uint(total_cut_offset)
+				prefix_packet.CalcNewChecksum(winDivert)
+				_, err = winDivert.Send(&prefix_packet)
+				if err != nil {
+					if LogLevel > 0 {
+						log.Println(err)
+					}
+					continue
+				}
+
+				if (info.Option & OPT_ACK) != 0 {
+					_, err = winDivert.Send(&fake_packet)
 					if err != nil {
 						if LogLevel > 0 {
 							log.Println(err)
 						}
 						continue
 					}
+					time.Sleep(time.Microsecond * 8)
+				}
+
+				_, err = winDivert.Send(&fake_packet)
+				if err != nil {
+					if LogLevel > 0 {
+						log.Println(err)
+					}
+					continue
+				}
+
+				seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
+				copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+				copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
+				totallen := uint16(packet.PacketLen) - uint16(host_cut_offset)
+				if ipv6 {
+					binary.BigEndian.PutUint16(tmp_rawbuf[4:], totallen-uint16(ipheadlen))
+					if info.MAXTTL > 0 {
+						tmp_rawbuf[7] = info.MAXTTL + 1
+					}
+				} else {
+					binary.BigEndian.PutUint16(tmp_rawbuf[2:], totallen)
+					if info.MAXTTL > 0 {
+						tmp_rawbuf[8] = info.MAXTTL + 1
+					}
+				}
+				binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+uint32(host_cut_offset))
+				packet.Raw = tmp_rawbuf[:totallen]
+				packet.PacketLen = uint(totallen)
+				packet.CalcNewChecksum(winDivert)
+
+				_, err = winDivert.Send(packet)
+				if err != nil {
+					if LogLevel > 0 {
+						log.Println(err)
+					}
+					continue
 				}
 			} else if packet.Raw[ipheadlen+13] == TCP_SYN {
 				dstAddr := packet.DstIP().String()
