@@ -56,6 +56,7 @@ const (
 	OPT_TFO    = 0x10000
 	OPT_SYN    = 0x20000
 	OPT_NOFLAG = 0x40000
+	OPT_QUIC   = 0x80000
 )
 
 var Logger *log.Logger
@@ -414,6 +415,13 @@ func LoadConfig() error {
 							option |= OPT_HTTPS
 						} else {
 							option &= ^uint32(OPT_HTTPS)
+						}
+						logPrintln(2, string(line))
+					} else if keys[0] == "quic" {
+						if keys[1] == "true" {
+							option |= OPT_QUIC
+						} else {
+							option &= ^uint32(OPT_QUIC)
 						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "max-ttl" {

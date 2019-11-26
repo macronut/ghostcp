@@ -379,18 +379,22 @@ func UDPDaemon(dstPort int, forward bool) {
 				if LogLevel > 0 {
 					log.Println(err)
 				}
-				return
+				continue
 			}
 
 			config, ok := IPLookup(packet.DstIP().String())
-			if !ok || config.Option == 0 {
-				_, err = winDivert.Send(packet)
-				if err != nil {
-					if LogLevel > 0 {
-						log.Println(err)
-					}
-					return
+			if ok {
+				if config.Option == 0 || (config.Option|OPT_QUIC != 0) {
+					_, err = winDivert.Send(packet)
 				}
+			} else {
+				_, err = winDivert.Send(packet)
+			}
+			if err != nil {
+				if LogLevel > 0 {
+					log.Println(err)
+				}
+				continue
 			}
 		}
 	}()
