@@ -44,17 +44,18 @@ var IPMode = false
 var TFOEnable = false
 
 const (
-	OPT_TTL   = 0x001
-	OPT_MSS   = 0x002
-	OPT_MD5   = 0x004
-	OPT_ACK   = 0x008
-	OPT_CSUM  = 0x010
-	OPT_BAD   = 0x020
-	OPT_IPOPT = 0x040
-	OPT_SEQ   = 0x080
-	OPT_HTTPS = 0x100
-	OPT_TFO   = 0x10000
-	OPT_SYN   = 0x20000
+	OPT_TTL    = 0x001
+	OPT_MSS    = 0x002
+	OPT_MD5    = 0x004
+	OPT_ACK    = 0x008
+	OPT_CSUM   = 0x010
+	OPT_BAD    = 0x020
+	OPT_IPOPT  = 0x040
+	OPT_SEQ    = 0x080
+	OPT_HTTPS  = 0x100
+	OPT_TFO    = 0x10000
+	OPT_SYN    = 0x20000
+	OPT_NOFLAG = 0x40000
 )
 
 var Logger *log.Logger
@@ -372,7 +373,7 @@ func LoadConfig() error {
 							option &= ^uint32(OPT_CSUM)
 						}
 						logPrintln(2, string(line))
-					} else if keys[0] == "tcpfastopen" {
+					} else if keys[0] == "tcpfastopen" || keys[0] == "tfo" {
 						if keys[1] == "true" {
 							option |= OPT_TFO
 							TFOEnable = true
@@ -399,6 +400,13 @@ func LoadConfig() error {
 							option |= OPT_SEQ
 						} else {
 							option &= ^uint32(OPT_SEQ)
+						}
+						logPrintln(2, string(line))
+					} else if keys[0] == "noflag" {
+						if keys[1] == "true" {
+							option |= OPT_NOFLAG
+						} else {
+							option &= ^uint32(OPT_NOFLAG)
 						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "https" {
