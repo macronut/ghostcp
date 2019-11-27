@@ -33,6 +33,7 @@ type IPConfig struct {
 }
 
 var DomainMap map[string]Config
+var DomainOptMap map[string]uint32
 var IPMap map[string]IPConfig
 var wg sync.WaitGroup
 
@@ -44,20 +45,38 @@ var IPMode = false
 var TFOEnable = false
 
 const (
-	OPT_TTL    = 0x001
-	OPT_MSS    = 0x002
-	OPT_MD5    = 0x004
-	OPT_ACK    = 0x008
-	OPT_CSUM   = 0x010
-	OPT_BAD    = 0x020
-	OPT_IPOPT  = 0x040
-	OPT_SEQ    = 0x080
-	OPT_HTTPS  = 0x100
-	OPT_TFO    = 0x10000
-	OPT_SYN    = 0x20000
-	OPT_NOFLAG = 0x40000
-	OPT_QUIC   = 0x80000
+	OPT_NONE   = 0x0
+	OPT_TTL    = 0x1 << 0
+	OPT_MD5    = 0x1 << 1
+	OPT_ACK    = 0x1 << 2
+	OPT_CSUM   = 0x1 << 3
+	OPT_BAD    = 0x1 << 4
+	OPT_IPOPT  = 0x1 << 5
+	OPT_SEQ    = 0x1 << 6
+	OPT_HTTPS  = 0x1 << 7
+	OPT_MSS    = 0x1 << 8
+	OPT_TFO    = 0x10000 << 0
+	OPT_SYN    = 0x10000 << 1
+	OPT_NOFLAG = 0x10000 << 2
+	OPT_QUIC   = 0x10000 << 3
 )
+
+var MethodMap = map[string]uint32{
+	"none":    OPT_NONE,
+	"ttl":     OPT_TTL,
+	"mss":     OPT_MSS,
+	"w-md5":   OPT_MD5,
+	"w-ack":   OPT_ACK,
+	"no-csum": OPT_CSUM,
+	"bad":     OPT_BAD,
+	"ipopt":   OPT_IPOPT,
+	"seq":     OPT_SEQ,
+	"https":   OPT_HTTPS,
+	"tfo":     OPT_TFO,
+	"syn":     OPT_SYN,
+	"no-flag": OPT_NOFLAG,
+	"quic":    OPT_QUIC,
+}
 
 var Logger *log.Logger
 
@@ -238,6 +257,59 @@ func getHost(b []byte) (offset int, length int) {
 	return
 }
 
+func getSNIFromQUIC(payload []byte) string {
+	flags := payload[0]
+	longHead := flags&0x80 != 0
+	if !longHead {
+		return ""
+	}
+	fixBit := flags&0x40 != 0
+	if !fixBit {
+		return ""
+	}
+	packetType := flags & 0x30 >> 4
+	if packetType != 0 {
+		return ""
+	}
+
+	version := string(payload[1:5])
+	if version != "Q046" {
+		return ""
+	}
+
+	dcil := (payload[5] & 0xF0) >> 4
+	scil := payload[5] & 0x0F
+
+	dstIDLen := 0
+	if dcil > 0 {
+		dstIDLen = int(dcil + 3)
+	}
+	srcIDLen := 0
+	if scil > 0 {
+		srcIDLen = int(scil + 3)
+	}
+
+	headlen := 6 + dstIDLen + srcIDLen
+	hs := payload[headlen:]
+
+	offset := bytes.Index(hs, []byte("CHLO"))
+	if offset > 0 {
+		hs = hs[offset:]
+		tagNum := int(binary.LittleEndian.Uint16(hs[4:8]))
+		hs = hs[8:]
+		tagsOffset := 0
+		for i := 0; i < tagNum; i++ {
+			if string(hs[i*8:i*8+4]) == "SNI\x00" {
+				tagsOffsetEnd := int(binary.LittleEndian.Uint16(hs[i*8+4 : i*8+8]))
+				return string(hs[tagNum*8+tagsOffset : tagNum*8+tagsOffsetEnd])
+			}
+			tagsOffset = int(binary.LittleEndian.Uint16(hs[i*8+4 : i*8+8]))
+		}
+	}
+
+	return ""
+}
+
 func getMyIPv6() net.IP {
 	s, err := net.InterfaceAddrs()
 	if err != nil {
@@ -258,6 +330,7 @@ func getMyIPv6() net.IP {
 
 func LoadConfig() error {
 	DomainMap = make(map[string]Config)
+	DomainOptMap = make(map[string]uint32)
 	IPMap = make(map[string]IPConfig)
 
 	conf, err := os.Open("config")
@@ -282,7 +355,8 @@ func LoadConfig() error {
 		}
 		if len(line) > 0 {
 			if line[0] != '#' {
-				keys := strings.SplitN(string(line), "=", 2)
+				l := strings.SplitN(string(line), "#", 2)[0]
+				keys := strings.SplitN(l, "=", 2)
 				if len(keys) > 1 {
 					if keys[0] == "server" {
 						var tcpAddr *net.TCPAddr
@@ -320,16 +394,23 @@ func LoadConfig() error {
 							ipv4Enable = false
 						}
 						logPrintln(2, string(line))
+					} else if keys[0] == "method" {
+						option = OPT_NONE
+						methods := strings.Split(keys[1], ",")
+						for _, m := range methods {
+							method, ok := MethodMap[m]
+							if ok {
+								option |= method
+							} else {
+								logPrintln(1, "Unsupported method: "+m)
+							}
+						}
+						logPrintln(2, string(line))
 					} else if keys[0] == "ttl" {
 						ttl, err := strconv.Atoi(keys[1])
 						if err != nil {
 							log.Println(string(line), err)
 							return err
-						}
-						if ttl == 0 {
-							option &= ^uint32(OPT_TTL)
-						} else {
-							option |= OPT_TTL
 						}
 						minTTL = byte(ttl)
 						logPrintln(2, string(line))
@@ -339,90 +420,7 @@ func LoadConfig() error {
 							log.Println(string(line), err)
 							return err
 						}
-						if mss == 0 {
-							option &= ^uint32(OPT_MSS)
-						} else {
-							option |= OPT_MSS
-						}
 						syncMSS = uint16(mss)
-						logPrintln(2, string(line))
-					} else if keys[0] == "md5" {
-						if keys[1] == "true" {
-							option |= OPT_MD5
-						} else {
-							option &= ^uint32(OPT_MD5)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "ack" {
-						if keys[1] == "true" {
-							option |= OPT_ACK
-						} else {
-							option &= ^uint32(OPT_ACK)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "syn" {
-						if keys[1] == "true" {
-							option |= OPT_SYN
-						} else {
-							option &= ^uint32(OPT_SYN)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "checksum" {
-						if keys[1] == "true" {
-							option |= OPT_CSUM
-						} else {
-							option &= ^uint32(OPT_CSUM)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "tcpfastopen" || keys[0] == "tfo" {
-						if keys[1] == "true" {
-							option |= OPT_TFO
-							TFOEnable = true
-						} else {
-							option &= ^uint32(OPT_TFO)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "bad" {
-						if keys[1] == "true" {
-							option |= OPT_BAD
-						} else {
-							option &= ^uint32(OPT_BAD)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "ipoption" {
-						if keys[1] == "true" {
-							option |= OPT_IPOPT
-						} else {
-							option &= ^uint32(OPT_IPOPT)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "seq" {
-						if keys[1] == "true" {
-							option |= OPT_SEQ
-						} else {
-							option &= ^uint32(OPT_SEQ)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "noflag" {
-						if keys[1] == "true" {
-							option |= OPT_NOFLAG
-						} else {
-							option &= ^uint32(OPT_NOFLAG)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "https" {
-						if keys[1] == "true" {
-							option |= OPT_HTTPS
-						} else {
-							option &= ^uint32(OPT_HTTPS)
-						}
-						logPrintln(2, string(line))
-					} else if keys[0] == "quic" {
-						if keys[1] == "true" {
-							option |= OPT_QUIC
-						} else {
-							option &= ^uint32(OPT_QUIC)
-						}
 						logPrintln(2, string(line))
 					} else if keys[0] == "max-ttl" {
 						ttl, err := strconv.Atoi(keys[1])
