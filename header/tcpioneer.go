@@ -33,7 +33,6 @@ type IPConfig struct {
 }
 
 var DomainMap map[string]Config
-var DomainOptMap map[string]uint32
 var IPMap map[string]IPConfig
 var wg sync.WaitGroup
 
@@ -330,7 +329,6 @@ func getMyIPv6() net.IP {
 
 func LoadConfig() error {
 	DomainMap = make(map[string]Config)
-	DomainOptMap = make(map[string]uint32)
 	IPMap = make(map[string]IPConfig)
 
 	conf, err := os.Open("config")
