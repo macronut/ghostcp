@@ -47,13 +47,15 @@ const (
 	OPT_NONE   = 0x0
 	OPT_TTL    = 0x1 << 0
 	OPT_MD5    = 0x1 << 1
-	OPT_ACK    = 0x1 << 2
-	OPT_CSUM   = 0x1 << 3
-	OPT_BAD    = 0x1 << 4
-	OPT_IPOPT  = 0x1 << 5
-	OPT_SEQ    = 0x1 << 6
-	OPT_HTTPS  = 0x1 << 7
-	OPT_MSS    = 0x1 << 8
+	OPT_WMD5   = 0x1 << 2
+	OPT_WACK   = 0x1 << 3
+	OPT_WCSUM  = 0x1 << 4
+	OPT_BAD    = 0x1 << 5
+	OPT_IPOPT  = 0x1 << 6
+	OPT_SEQ    = 0x1 << 7
+	OPT_HTTPS  = 0x1 << 8
+	OPT_MSS    = 0x1 << 9
+	OPT_WTFO   = 0x1 << 10
 	OPT_TFO    = 0x10000 << 0
 	OPT_SYN    = 0x10000 << 1
 	OPT_NOFLAG = 0x10000 << 2
@@ -64,13 +66,15 @@ var MethodMap = map[string]uint32{
 	"none":    OPT_NONE,
 	"ttl":     OPT_TTL,
 	"mss":     OPT_MSS,
-	"w-md5":   OPT_MD5,
-	"w-ack":   OPT_ACK,
-	"no-csum": OPT_CSUM,
+	"md5":     OPT_MD5,
+	"w-md5":   OPT_WMD5,
+	"w-ack":   OPT_WACK,
+	"w-csum":  OPT_WCSUM,
 	"bad":     OPT_BAD,
 	"ipopt":   OPT_IPOPT,
 	"seq":     OPT_SEQ,
 	"https":   OPT_HTTPS,
+	"w-tfo":   OPT_WTFO,
 	"tfo":     OPT_TFO,
 	"syn":     OPT_SYN,
 	"no-flag": OPT_NOFLAG,
