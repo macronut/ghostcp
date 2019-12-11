@@ -9,7 +9,7 @@ run install.bat to install the service
 ## How to configure
   server=IP:Port         `domain in config will use this DNS(DNSoverTCP),if not set it will use the DNS of system`  
   ipv6=true/false        `Domain below will enable/disable IPv6`  
-  ttl=*                  `if ttl is not zero, the fake tcp packet will use this TTL`  
+  ttl=*                  `the fake tcp packet will use this TTL`  
   domain=ip,ip,...       `this domain will use these IPs`  
   domain                 `this domain will be resolved by DNS`  
   method=*               `the methods to modify TCP`
