@@ -14,6 +14,7 @@ run install.bat to install the service
   domain                 `this domain will be resolved by DNS`  
   method=*               `the methods to modify TCP`
 ### methods:
+  ttl                    `the fake tcp packets will use the TTL you set`  
   w-md5                  `the fake tcp packets will have a wrong md5 option`  
   w-csum                 `the fake tcp packets will have a wrong checksum`  
   w-ack                  `the fake tcp packets will have a wrong ACK number`  
@@ -22,4 +23,4 @@ run install.bat to install the service
 
 ## How to get the TTL
 tracert 8.8.8.8  
-set the ttl to the TTL of the node whose latency suddenly increased.
+set the ttl big than the TTL of the node whose latency suddenly increased and less then the TTL of the server.
