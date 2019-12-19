@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
-	"time"
 
 	"github.com/williamfhe/godivert"
 )
@@ -146,6 +146,152 @@ func TFORecv(srcPort int, forward bool) {
 			}
 		}
 	}()
+}
+
+const domainBytes = "abcdefghijklmnopqrstuvwxyz0123456789-"
+
+func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet *godivert.Packet, host_offset int, host_length int, id int) error {
+	rawbuf := make([]byte, 1500)
+
+	ipv6 := packet.Raw[0]>>4 == 6
+	var ipheadlen int
+	if ipv6 {
+		ipheadlen = 40
+	} else {
+		ipheadlen = int(packet.Raw[0]&0xF) * 4
+	}
+
+	tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
+
+	fake_packet := *packet
+	copy(rawbuf, packet.Raw)
+
+	total_host_offset := ipheadlen + tcpheadlen + host_offset
+	for i := total_host_offset; i < total_host_offset+host_length-3; i++ {
+		if rawbuf[i] != '.' {
+			rawbuf[i] = domainBytes[rand.Intn(len(domainBytes))]
+		}
+	}
+
+	var err error
+
+	if (info.Option & OPT_WCSUM) != 0 {
+		fake_packet.Raw = rawbuf[:len(packet.Raw)]
+
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			return err
+		}
+	}
+
+	if info.TTL > 0 {
+		if ipv6 {
+			rawbuf[7] = byte(info.TTL)
+		} else {
+			rawbuf[8] = byte(info.TTL)
+		}
+		fake_packet.Raw = rawbuf[:len(packet.Raw)]
+
+		fake_packet.CalcNewChecksum(winDivert)
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (info.Option&OPT_WACK) != 0 && id == 1 {
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		ackNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+8:])
+		ackNum += uint32(binary.BigEndian.Uint16(rawbuf[ipheadlen+14:]))
+		binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], ackNum)
+		fake_packet.Raw = rawbuf[:len(packet.Raw)]
+
+		fake_packet.CalcNewChecksum(winDivert)
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			return err
+		}
+
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (info.Option & OPT_IPOPT) != 0 {
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		fakeipheadlen := ipheadlen + 32
+		copy(rawbuf[fakeipheadlen:], packet.Raw[ipheadlen:ipheadlen+tcpheadlen])
+		if ipv6 {
+		} else {
+			rawbuf[0] = rawbuf[0]&0xF0 | byte(fakeipheadlen/4)
+		}
+		for i := 0; i < 31; i++ {
+			rawbuf[ipheadlen+i] = 1
+		}
+		rawbuf[ipheadlen+31] = 0
+		fake_packet.Raw = rawbuf[:len(packet.Raw)]
+
+		fake_packet.CalcNewChecksum(winDivert)
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (info.Option & OPT_BAD) != 0 {
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		rawbuf[ipheadlen+12] = 4 << 4
+		fake_packet.Raw = rawbuf[:len(packet.Raw)]
+
+		fake_packet.CalcNewChecksum(winDivert)
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			return err
+		}
+	}
+
+	if (info.Option&OPT_SEQ != 0) && id == 0 {
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
+		fakeLen := ipheadlen + tcpheadlen + 1220
+		fake_packet.PacketLen = uint(fakeLen)
+		if ipv6 {
+			binary.BigEndian.PutUint16(rawbuf[4:], uint16(fakeLen-ipheadlen))
+		} else {
+			binary.BigEndian.PutUint16(rawbuf[2:], uint16(fakeLen))
+		}
+		fake_packet.Raw = rawbuf[:fakeLen]
+
+		for i := 0; i < 4; i++ {
+			binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum)
+			rawbuf[ipheadlen+13] = TCP_PSH
+			binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
+
+			fake_packet.CalcNewChecksum(winDivert)
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				return err
+			}
+			seqNum += 1220
+		}
+	}
+
+	if (info.Option & OPT_WMD5) != 0 {
+		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
+		copy(rawbuf[ipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
+		rawbuf[ipheadlen+12] = 10 << 4
+		copy(rawbuf[ipheadlen+40:], rawbuf[ipheadlen+tcpheadlen:len(packet.Raw)])
+		fake_packet.Raw = rawbuf[:len(packet.Raw)]
+
+		fake_packet.CalcNewChecksum(winDivert)
+		_, err = winDivert.Send(&fake_packet)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func TCPDaemon(address string, forward bool) {
@@ -433,92 +579,14 @@ func TCPDaemon(address string, forward bool) {
 					continue
 				}
 
-				fake_packet := *packet
-				copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
-
 				if (info.Option & 0xFFFF) != 0 {
-					if info.TTL > 0 {
-						if ipv6 {
-							rawbuf[7] = byte(info.TTL)
-						} else {
-							rawbuf[8] = byte(info.TTL)
+					err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 0)
+					if err != nil {
+						if LogLevel > 0 {
+							log.Println(err)
 						}
+						continue
 					}
-
-					fakeipheadlen := ipheadlen
-					if (info.Option & OPT_IPOPT) != 0 {
-						fakeipheadlen += 32
-						copy(rawbuf[fakeipheadlen:], packet.Raw[ipheadlen:ipheadlen+tcpheadlen])
-						if ipv6 {
-						} else {
-							rawbuf[0] = rawbuf[0]&0xF0 | byte(fakeipheadlen/4)
-						}
-						for i := 0; i < 31; i++ {
-							rawbuf[ipheadlen+i] = 1
-						}
-						rawbuf[ipheadlen+31] = 0
-					}
-
-					if (info.Option & OPT_WMD5) != 0 {
-						copy(rawbuf[fakeipheadlen+20:], []byte{19, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0})
-						rawbuf[fakeipheadlen+12] = 10 << 4
-					}
-
-					if (info.Option & OPT_WACK) != 0 {
-						ackNum := binary.BigEndian.Uint32(rawbuf[fakeipheadlen+8:])
-						ackNum += uint32(binary.BigEndian.Uint16(rawbuf[fakeipheadlen+14:]))
-						binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+8:], ackNum)
-					}
-
-					if (info.Option & OPT_BAD) != 0 {
-						rawbuf[fakeipheadlen+12] = 4 << 4
-					}
-
-					if (info.Option & OPT_SEQ) != 0 {
-						seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
-						fakeLen := ipheadlen + tcpheadlen + 1220
-						fake_packet.PacketLen = uint(fakeLen)
-						if ipv6 {
-							binary.BigEndian.PutUint16(rawbuf[4:], uint16(fakeLen-ipheadlen))
-						} else {
-							binary.BigEndian.PutUint16(rawbuf[2:], uint16(fakeLen))
-						}
-						fake_packet.Raw = rawbuf[:fakeLen]
-
-						for i := 0; i < 4; i++ {
-							binary.BigEndian.PutUint32(rawbuf[fakeipheadlen+4:], seqNum)
-							rawbuf[ipheadlen+13] = TCP_PSH
-							binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
-
-							fake_packet.CalcNewChecksum(winDivert)
-							_, err = winDivert.Send(&fake_packet)
-							if err != nil {
-								if LogLevel > 0 {
-									log.Println(err)
-								}
-								continue
-							}
-							seqNum += 1220
-						}
-					} else if (info.Option & OPT_WACK) == 0 {
-						fake_packet.Raw = rawbuf[:len(packet.Raw)]
-						fake_packet.CalcNewChecksum(winDivert)
-
-						if (info.Option & OPT_WCSUM) != 0 {
-							binary.BigEndian.PutUint16(rawbuf[fakeipheadlen+16:], 0)
-						}
-
-						_, err = winDivert.Send(&fake_packet)
-						if err != nil {
-							if LogLevel > 0 {
-								log.Println(err)
-							}
-							continue
-						}
-					}
-				} else {
-					fake_packet.Raw = rawbuf[:len(packet.Raw)]
-					fake_packet.CalcNewChecksum(winDivert)
 				}
 
 				if info.Option&OPT_MD5 != 0 {
@@ -564,25 +632,12 @@ func TCPDaemon(address string, forward bool) {
 				}
 
 				if (info.Option & 0xFFFF) != 0 {
-					if (info.Option & OPT_WACK) != 0 {
-						_, err = winDivert.Send(&fake_packet)
-						if err != nil {
-							if LogLevel > 0 {
-								log.Println(err)
-							}
-							continue
+					err := SendFakePacket(winDivert, info, packet, host_offset, host_length, 1)
+					if err != nil {
+						if LogLevel > 0 {
+							log.Println(err)
 						}
-						time.Sleep(time.Microsecond * 8)
-					}
-
-					if (info.Option & OPT_SEQ) == 0 {
-						_, err = winDivert.Send(&fake_packet)
-						if err != nil {
-							if LogLevel > 0 {
-								log.Println(err)
-							}
-							continue
-						}
+						continue
 					}
 				}
 
