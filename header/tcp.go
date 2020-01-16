@@ -150,7 +150,7 @@ func TFORecv(srcPort int, forward bool) {
 
 const domainBytes = "abcdefghijklmnopqrstuvwxyz0123456789-"
 
-func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet *godivert.Packet, host_offset int, host_length int, id int) error {
+func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet *godivert.Packet, host_offset int, host_length int, id int) (int, error) {
 	rawbuf := make([]byte, 1500)
 
 	ipv6 := packet.Raw[0]>>4 == 6
@@ -167,9 +167,25 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 	copy(rawbuf, packet.Raw)
 
 	total_host_offset := ipheadlen + tcpheadlen + host_offset
-	for i := total_host_offset; i < total_host_offset+host_length-3; i++ {
-		if rawbuf[i] != '.' {
-			rawbuf[i] = domainBytes[rand.Intn(len(domainBytes))]
+	if host_length == 1 { //DNS
+		dot := int(rawbuf[total_host_offset] + 1)
+		for i := 1; i < int(packet.PacketLen); i++ {
+			if i == dot {
+				off := rawbuf[i+total_host_offset]
+				if off == 0 {
+					host_length = i
+					break
+				}
+				dot += int(off) + 1
+			} else {
+				rawbuf[i+total_host_offset] = domainBytes[rand.Intn(len(domainBytes))]
+			}
+		}
+	} else {
+		for i := total_host_offset; i < total_host_offset+host_length-3; i++ {
+			if rawbuf[i] != '.' {
+				rawbuf[i] = domainBytes[rand.Intn(len(domainBytes))]
+			}
 		}
 	}
 
@@ -180,7 +196,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -195,7 +211,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -209,12 +225,12 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -235,7 +251,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -247,7 +263,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -271,7 +287,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 			fake_packet.CalcNewChecksum(winDivert)
 			_, err = winDivert.Send(&fake_packet)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			seqNum += 1220
 		}
@@ -287,11 +303,11 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.CalcNewChecksum(winDivert)
 		_, err = winDivert.Send(&fake_packet)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	return nil
+	return host_length, nil
 }
 
 func TCPDaemon(address string, forward bool) {
@@ -399,7 +415,7 @@ func TCPDaemon(address string, forward bool) {
 				case 53:
 					if payloadLen > 0 {
 						if len(packet.Raw[ipheadlen+tcpheadlen:]) > 21 {
-							host_offset = 20
+							host_offset = 14
 							host_length = 1
 						}
 						if ipv6 {
@@ -580,7 +596,7 @@ func TCPDaemon(address string, forward bool) {
 				}
 
 				if (info.Option & 0xFFFF) != 0 {
-					err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 0)
+					host_length, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 0)
 					if err != nil {
 						if LogLevel > 0 {
 							log.Println(err)
@@ -632,7 +648,7 @@ func TCPDaemon(address string, forward bool) {
 				}
 
 				if (info.Option & 0xFFFF) != 0 {
-					err := SendFakePacket(winDivert, info, packet, host_offset, host_length, 1)
+					_, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 1)
 					if err != nil {
 						if LogLevel > 0 {
 							log.Println(err)
