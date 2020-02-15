@@ -46,13 +46,11 @@ func StartService() {
 	tcpioneer.TCPDaemon(":443", false)
 	tcpioneer.TCPDaemon(":80", false)
 	tcpioneer.UDPDaemon(443, false)
-	tcpioneer.TFORecv(443, false)
 
 	if tcpioneer.Forward {
 		tcpioneer.TCPDaemon(":443", true)
 		tcpioneer.TCPDaemon(":80", true)
 		tcpioneer.UDPDaemon(443, true)
-		tcpioneer.TFORecv(443, true)
 	}
 
 	if tcpioneer.DNS == "" {
