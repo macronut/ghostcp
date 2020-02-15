@@ -195,11 +195,23 @@ func DNSDaemon() {
 								if ok {
 									logPrintln(3, ip, ipconfig.Option)
 									IPMap[ip] = ipconfig
+									if (config.Option & OPT_TFO) != 0 {
+										if Forward {
+											go TFORecv(ip, true)
+										}
+										go TFORecv(ip, false)
+									}
 								}
 							}
 							if !ok {
 								logPrintln(3, ip, config.Option)
 								IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
+								if (config.Option & OPT_TFO) != 0 {
+									if Forward {
+										go TFORecv(ip, true)
+									}
+									go TFORecv(ip, false)
+								}
 							}
 						}
 
@@ -361,7 +373,7 @@ func UDPDaemon(dstPort int, forward bool) {
 		layer = 0
 	}
 
-	winDivert, err := godivert.NewWinDivertHandleWithLayer(filter, layer)
+	winDivert, err := godivert.WinDivertOpen(filter, layer, 1, 0)
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
