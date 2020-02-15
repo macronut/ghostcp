@@ -1,8 +1,7 @@
 #forward
-ttl=12
+ttl=10
 mss=512
-method=ttl,w-md5
-
+method=w-md5
 server=8.8.8.8:53
 #dns64=[2001:67c:27e4::64]:53
 
@@ -14,13 +13,23 @@ server=8.8.8.8:53
 method=none
 
 #TCP Protection
+ttl=12
 ipv6=false
+
+#GitHub
+github.com
+.github.com
+raw.githubusercontent.com
+.raw.githubusercontent.com
 
 #Wikipedia
 method=w-md5
-.wikipedia.org=208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224,2620:0:863:ed1a::1,2620:0:860:ed1a::1,2620:0:861:ed1a::1,2620:0:862:ed1a::1,2001:df2:e500:ed1a::1
-.m.wikipedia.org=208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224,2620:0:863:ed1a::1,2620:0:860:ed1a::1,2620:0:861:ed1a::1,2620:0:862:ed1a::1,2001:df2:e500:ed1a::1
-upload.wikimedia.org=198.35.26.112,208.80.153.240,208.80.154.240,91.198.174.208,103.102.166.240,2620:0:863:ed1a::2:b,2620:0:860:ed1a::2:b,2620:0:861:ed1a::2:b,2620:0:862:ed1a::2:b,2001:df2:e500:ed1a::2:b
+#.wikipedia.org=2620:0:863:ed1a::1,2620:0:860:ed1a::1,2620:0:861:ed1a::1,2620:0:862:ed1a::1,2001:df2:e500:ed1a::1
+#.m.wikipedia.org=2620:0:863:ed1a::1,2620:0:860:ed1a::1,2620:0:861:ed1a::1,2620:0:862:ed1a::1,2001:df2:e500:ed1a::1
+#upload.wikimedia.org=2620:0:863:ed1a::2:b,2620:0:860:ed1a::2:b,2620:0:861:ed1a::2:b,2620:0:862:ed1a::2:b,2001:df2:e500:ed1a::2:b
+.wikipedia.org=208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
+.m.wikipedia.org=208.80.154.224,208.80.154.224,91.198.174.192,103.102.166.224
+upload.wikimedia.org=198.35.26.112,208.80.153.240,208.80.154.240,91.198.174.208,103.102.166.240
 .wikimedia.org
 
 #Google
@@ -51,10 +60,6 @@ abs-0.twimg.com=104.244.43.195
 abs.twimg.com=72.21.91.70
 pbs.twimg.com=117.18.237.70,192.229.233.50
 
-#OneDrive
-onedrive.live.com
-.onedrive.live.com
-
 #Facebook
 facebook.com=70.186.24.83
 .facebook.com=70.186.24.83
@@ -69,6 +74,11 @@ video-sin2-2.xx.fbcdn.net=78.129.226.64
 .fbsbx.com=78.129.226.64
 attachment.fbsbx.com=78.129.226.64
 lookaside.fbsbx.com=78.129.226.64
+
+#OneDrive
+method=ttl
+onedrive.live.com
+.onedrive.live.com
 
 #Other
 method=ttl
