@@ -54,7 +54,7 @@ func getCookies(option []byte) []byte {
 	return nil
 }
 
-func TFORecv(srcPort int, forward bool) {
+func TFORecv(ip string, forward bool) {
 	if TFOEnable == false {
 		return
 	}
@@ -62,13 +62,13 @@ func TFORecv(srcPort int, forward bool) {
 	var filter string
 	var layer uint8
 	if forward {
-		filter = fmt.Sprintf("tcp.SrcPort == %d and tcp.Syn", srcPort)
+		filter = "tcp.Syn and ip.SrcAddr=" + ip
 		layer = 1
 	} else {
-		filter = fmt.Sprintf("inbound and tcp.SrcPort == %d and tcp.Syn", srcPort)
+		filter = "outbound and tcp.Syn and ip.SrcAddr=" + ip
 		layer = 0
 	}
-	winDivert, err := godivert.NewWinDivertHandleWithLayer(filter, layer)
+	winDivert, err := godivert.WinDivertOpen(filter, layer, 1, 0)
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
@@ -339,7 +339,7 @@ func TCPDaemon(address string, forward bool) {
 		layer = 0
 	}
 
-	winDivert, err := godivert.NewWinDivertHandleWithLayer(filter, layer)
+	winDivert, err := godivert.WinDivertOpen(filter, layer, 1, 0)
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
@@ -810,7 +810,7 @@ func TCPDaemon(address string, forward bool) {
 					} else {
 						PortList4[srcPort] = nil
 					}
-					logPrintln(3, packet.DstIP())
+					logPrintln(3, packet.DstIP(), tcpAddr.Port)
 				}
 
 				_, err = winDivert.Send(packet)
@@ -831,7 +831,7 @@ func TCPDaemon(address string, forward bool) {
 	}()
 }
 
-func NAT64(ipv6 net.IP, ipv4 net.IP, forward bool) {
+func NAT64(ipv4 net.IP, ipv6 net.IP, forward bool) {
 	wg.Add(1)
 	defer wg.Done()
 
@@ -839,14 +839,14 @@ func NAT64(ipv6 net.IP, ipv4 net.IP, forward bool) {
 	var filter string
 	var layer uint8
 	if forward {
-		filter = "!loopback and ((ip.DstAddr=" + ipv4.String() + ") or (ipv6.SrcAddr=" + ipv6.String() + "))"
+		filter = fmt.Sprintf("ip.DstAddr=%s or ipv6.SrcAddr=%s", ipv4.String(), ipv6.String())
 		layer = 1
 	} else {
-		filter = "!loopback and ((outbound and ip.DstAddr=" + ipv4.String() + ") or (inbound and ipv6.SrcAddr=" + ipv6.String() + "))"
+		filter = fmt.Sprintf("(outbound and ip.DstAddr=%s) or (inbound and ipv6.SrcAddr=%s)", ipv4.String(), ipv6.String())
 		layer = 0
 	}
 
-	winDivert, err := godivert.NewWinDivertHandleWithLayer(filter, layer)
+	winDivert, err := godivert.WinDivertOpen(filter, layer, 0, 0)
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
