@@ -463,6 +463,12 @@ func LoadConfig() error {
 										}
 									}
 									IPMap[ip] = IPConfig{option, minTTL, maxTTL, syncMSS}
+									if (option & OPT_TFO) != 0 {
+										if Forward {
+											go TFORecv(ip, true)
+										}
+										go TFORecv(ip, false)
+									}
 								}
 								count4, answer4 := packAnswers(ips, 1)
 								count6, answer6 := packAnswers(ips, 28)
@@ -481,9 +487,9 @@ func LoadConfig() error {
 							ip4 := ip.To4()
 							if ip4 != nil {
 								if Forward {
-									go NAT64(prefix, ip4, true)
+									go NAT64(ip4, prefix, true)
 								}
-								go NAT64(prefix, ip4, false)
+								go NAT64(ip4, prefix, false)
 							}
 						}
 					}
