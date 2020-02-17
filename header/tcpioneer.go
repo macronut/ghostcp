@@ -34,6 +34,7 @@ type IPConfig struct {
 
 var DomainMap map[string]Config
 var IPMap map[string]IPConfig
+var BadIPMap map[string]bool
 var wg sync.WaitGroup
 
 var SubdomainDepth = 2
@@ -42,6 +43,8 @@ var Forward bool = false
 var IPBlock = false
 var IPMode = false
 var TFOEnable = false
+var RSTFilterEnable = false
+var DNSFilterEnable = false
 
 const (
 	OPT_NONE   = 0x0
@@ -60,6 +63,7 @@ const (
 	OPT_SYN    = 0x10000 << 1
 	OPT_NOFLAG = 0x10000 << 2
 	OPT_QUIC   = 0x10000 << 3
+	OPT_FILTER = 0x10000 << 4
 )
 
 var MethodMap = map[string]uint32{
@@ -79,6 +83,7 @@ var MethodMap = map[string]uint32{
 	"syn":     OPT_SYN,
 	"no-flag": OPT_NOFLAG,
 	"quic":    OPT_QUIC,
+	"filter":  OPT_FILTER,
 }
 
 var Logger *log.Logger
@@ -313,6 +318,24 @@ func getSNIFromQUIC(payload []byte) string {
 	return ""
 }
 
+func getMyIPv4() net.IP {
+	s, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	for _, a := range s {
+		strIP := strings.SplitN(a.String(), "/", 2)
+		if strIP[1] == "24" && !strings.HasSuffix(strIP[0], ".1") {
+			ip := net.ParseIP(strIP[0])
+			ip4 := ip.To4()
+			if ip4 != nil {
+				return ip4
+			}
+		}
+	}
+	return nil
+}
+
 func getMyIPv6() net.IP {
 	s, err := net.InterfaceAddrs()
 	if err != nil {
@@ -334,6 +357,7 @@ func getMyIPv6() net.IP {
 func LoadConfig() error {
 	DomainMap = make(map[string]Config)
 	IPMap = make(map[string]IPConfig)
+	BadIPMap = make(map[string]bool)
 
 	conf, err := os.Open("config")
 	if err != nil {
@@ -403,6 +427,12 @@ func LoadConfig() error {
 							method, ok := MethodMap[m]
 							if ok {
 								option |= method
+								switch method {
+								case OPT_TFO:
+									TFOEnable = true
+								case OPT_FILTER:
+									DNSFilterEnable = true
+								}
 							} else {
 								logPrintln(1, "Unsupported method: "+m)
 							}
@@ -463,12 +493,6 @@ func LoadConfig() error {
 										}
 									}
 									IPMap[ip] = IPConfig{option, minTTL, maxTTL, syncMSS}
-									if (option & OPT_TFO) != 0 {
-										if Forward {
-											go TFORecv(ip, true)
-										}
-										go TFORecv(ip, false)
-									}
 								}
 								count4, answer4 := packAnswers(ips, 1)
 								count6, answer6 := packAnswers(ips, 28)

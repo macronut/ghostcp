@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"time"
 
 	"github.com/williamfhe/godivert"
 )
@@ -54,20 +55,37 @@ func getCookies(option []byte) []byte {
 	return nil
 }
 
-func TFORecv(ip string, forward bool) {
-	if TFOEnable == false {
+func TCPRecv(srcPort int, forward bool) {
+	if (TFOEnable || RSTFilterEnable || DNSFilterEnable) == false {
 		return
 	}
 
 	var filter string
 	var layer uint8
 	if forward {
-		filter = "tcp.Syn and ip.SrcAddr=" + ip
+		filter = fmt.Sprintf("tcp.SrcPort == %d", srcPort)
 		layer = 1
 	} else {
-		filter = "outbound and tcp.Syn and ip.SrcAddr=" + ip
+		filter = fmt.Sprintf("inbound and tcp.SrcPort == %d", srcPort)
 		layer = 0
 	}
+
+	if TFOEnable {
+		if RSTFilterEnable {
+			filter += " and (tcp.Syn or tcp.Rst)"
+		} else {
+			if DNSFilterEnable {
+				filter += " and (tcp.Syn or (tcp.Rst and tcp.DstPort==1))"
+			} else {
+				filter += " and tcp.Syn"
+			}
+		}
+	} else if RSTFilterEnable {
+		filter += " and tcp.Rst"
+	} else if DNSFilterEnable {
+		filter += " and tcp.Rst and tcp.DstPort==1"
+	}
+
 	winDivert, err := godivert.WinDivertOpen(filter, layer, 1, 0)
 	if err != nil {
 		if LogLevel > 0 {
@@ -136,6 +154,14 @@ func TFORecv(ip string, forward bool) {
 						packet.CalcNewChecksum(winDivert)
 					}
 				}
+			} else if packet.Raw[ipheadlen+13]|TCP_RST != 0 {
+				if DNSFilterEnable {
+					dstPort, _ := packet.DstPort()
+					if dstPort == 1 {
+						BadIPMap[packet.SrcIP().String()] = true
+					}
+				}
+				continue
 			}
 
 			_, err = winDivert.Send(packet)
@@ -200,7 +226,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		}
 	}
 
-	if info.TTL > 0 {
+	if (info.Option & OPT_TTL) > 0 {
 		if ipv6 {
 			rawbuf[7] = byte(info.TTL)
 		} else {
@@ -308,6 +334,53 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 	}
 
 	return host_length, nil
+}
+
+func TCPDetection(winDivert *godivert.WinDivertHandle, winDivertAddr godivert.WinDivertAddress, ips []string, port, ttl int) []string {
+	var packet godivert.Packet
+	packet.PacketLen = 40
+	winDivertAddr.Data = 1 << 4
+	packet.Addr = &winDivertAddr
+	packet.Raw = []byte{
+		0x45, 0, 0, 40,
+		0, 0, 0x40, 0,
+		byte(ttl), 6, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0x50, TCP_SYN, 0, 0,
+		0, 0, 0, 0}
+
+	srcIP := getMyIPv4()
+	copy(packet.Raw[12:], srcIP)
+	binary.BigEndian.PutUint16(packet.Raw[22:], uint16(port))
+
+	for _, addr := range ips {
+		ip := net.ParseIP(addr)
+		ip4 := ip.To4()
+		if ip4 != nil {
+			copy(packet.Raw[16:], ip4)
+			packet.CalcNewChecksum(winDivert)
+			_, err := winDivert.Send(&packet)
+			if err != nil {
+				log.Println(err, packet)
+			}
+		}
+	}
+
+	time.Sleep(time.Millisecond * 100)
+
+	var new_ips []string = nil
+	for _, ip := range ips {
+		bad, ok := BadIPMap[ip]
+		if !ok || !bad {
+			new_ips = append(new_ips, ip)
+		}
+	}
+
+	return new_ips
 }
 
 func TCPDaemon(address string, forward bool) {
@@ -862,6 +935,7 @@ func NAT64(ipv4 net.IP, ipv6 net.IP, forward bool) {
 
 	rawbuf := make([]byte, 1500)
 	srcIP := make([]byte, 4)
+	mss := uint16(1440)
 
 	for {
 		packet, err := winDivert.Recv()
@@ -875,8 +949,26 @@ func NAT64(ipv4 net.IP, ipv6 net.IP, forward bool) {
 		ipVer := packet.Raw[0] >> 4
 
 		if ipVer == 4 {
+			if packet.PacketLen > 1500-20 {
+				continue
+			}
+
 			ipheadlen := int(packet.Raw[0]&0xF) * 4
 			payloadLen := int(packet.PacketLen) - ipheadlen
+
+			if packet.Raw[9] == 6 {
+				if packet.Raw[ipheadlen+13] == TCP_SYN {
+					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
+					if tcpheadlen >= 24 {
+						tcpOption := packet.Raw[ipheadlen+20]
+						if tcpOption == 2 {
+							mss = binary.BigEndian.Uint16(packet.Raw[ipheadlen+22:])
+							mss -= 20
+							binary.BigEndian.PutUint16(packet.Raw[ipheadlen+22:], mss)
+						}
+					}
+				}
+			}
 
 			copy(srcIP, packet.Raw[12:16])
 
@@ -897,6 +989,20 @@ func NAT64(ipv4 net.IP, ipv6 net.IP, forward bool) {
 		} else if ipVer == 6 {
 			ipheadlen := 40
 			payloadLen := int(packet.PacketLen) - ipheadlen
+
+			if packet.Raw[6] == 6 {
+				if packet.Raw[ipheadlen+13] == TCP_SYN|TCP_ACK {
+					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
+					if tcpheadlen >= 24 {
+						tcpOption := packet.Raw[ipheadlen+20]
+						if tcpOption == 2 {
+							if mss < binary.BigEndian.Uint16(packet.Raw[ipheadlen+22:]) {
+								binary.BigEndian.PutUint16(packet.Raw[ipheadlen+22:], mss)
+							}
+						}
+					}
+				}
+			}
 
 			copy(rawbuf, []byte{0x45, 0x00})
 			binary.BigEndian.PutUint16(rawbuf[2:], uint16(20+payloadLen))

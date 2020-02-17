@@ -1,5 +1,5 @@
 #forward
-ttl=10
+ttl=12
 mss=512
 method=w-md5
 server=8.8.8.8:53
@@ -13,12 +13,13 @@ server=8.8.8.8:53
 method=none
 
 #TCP Protection
-ttl=12
 ipv6=false
 
 #GitHub
-github.com
-.github.com
+method=w-md5
+#github.com
+#.github.com
+method=w-md5,filter
 raw.githubusercontent.com
 .raw.githubusercontent.com
 

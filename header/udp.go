@@ -187,6 +187,16 @@ func DNSDaemon() {
 						count := int(binary.BigEndian.Uint16(response[6:8]))
 
 						ips := getAnswers(response[off:], count)
+
+						//Filter
+						if config.Option&OPT_FILTER != 0 {
+							ips = TCPDetection(winDivert, *packet.Addr, ips, 443, int(config.TTL))
+							count, ans := packAnswers(ips, qtype)
+							binary.BigEndian.PutUint16(response[6:8], uint16(count))
+							copy(response[off:], ans)
+							response = response[:off+len(ans)]
+						}
+
 						for _, ip := range ips {
 							_, ok := IPLookup(ip)
 							if IPBlock && !ok {
@@ -195,23 +205,11 @@ func DNSDaemon() {
 								if ok {
 									logPrintln(3, ip, ipconfig.Option)
 									IPMap[ip] = ipconfig
-									if (config.Option & OPT_TFO) != 0 {
-										if Forward {
-											go TFORecv(ip, true)
-										}
-										go TFORecv(ip, false)
-									}
 								}
 							}
 							if !ok {
 								logPrintln(3, ip, config.Option)
 								IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
-								if (config.Option & OPT_TFO) != 0 {
-									if Forward {
-										go TFORecv(ip, true)
-									}
-									go TFORecv(ip, false)
-								}
 							}
 						}
 
