@@ -86,7 +86,10 @@ func TCPRecv(srcPort int, forward bool) {
 		filter += " and tcp.Rst and tcp.DstPort==1"
 	}
 
+	mutex.Lock()
 	winDivert, err := godivert.WinDivertOpen(filter, layer, 1, 0)
+	mutex.Unlock()
+
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
@@ -412,7 +415,9 @@ func TCPDaemon(address string, forward bool) {
 		layer = 0
 	}
 
+	mutex.Lock()
 	winDivert, err := godivert.WinDivertOpen(filter, layer, 1, 0)
+	mutex.Unlock()
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
@@ -919,7 +924,9 @@ func NAT64(ipv4 net.IP, ipv6 net.IP, forward bool) {
 		layer = 0
 	}
 
+	mutex.Lock()
 	winDivert, err := godivert.WinDivertOpen(filter, layer, 0, 0)
+	mutex.Unlock()
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)

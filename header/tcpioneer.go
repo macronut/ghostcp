@@ -36,6 +36,7 @@ var DomainMap map[string]Config
 var IPMap map[string]IPConfig
 var BadIPMap map[string]bool
 var wg sync.WaitGroup
+var mutex sync.Mutex
 
 var SubdomainDepth = 2
 var LogLevel = 0

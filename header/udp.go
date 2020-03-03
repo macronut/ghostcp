@@ -23,7 +23,9 @@ func DNSDaemon() {
 	}
 
 	filter := "outbound and udp.DstPort == 53"
+	mutex.Lock()
 	winDivert, err := godivert.NewWinDivertHandle(filter)
+	mutex.Unlock()
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
