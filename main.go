@@ -62,6 +62,14 @@ func StartService() {
 		tcpioneer.DNSDaemon()
 	}
 
+	if tcpioneer.ProxyServer != nil {
+		tcpioneer.ProxyRedirect(false)
+		if tcpioneer.Forward {
+			tcpioneer.ProxyRedirect(true)
+		}
+		go tcpioneer.TCPProxy()
+	}
+
 	fmt.Println("Service Start")
 	tcpioneer.Wait()
 }

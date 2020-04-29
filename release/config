@@ -1,9 +1,15 @@
+#log=2
 #forward
 ttl=12
 mss=512
 method=w-md5
 server=8.8.8.8:53
 #dns64=[2001:67c:27e4::64]:53
+#proxy=127.0.0.1:1080
+
+#PROXY
+method=proxy
+#Domain
 
 #NAT64
 #IPv4=2001:67c:27e4:64::
@@ -34,23 +40,24 @@ upload.wikimedia.org=198.35.26.112,208.80.153.240,208.80.154.240,91.198.174.208,
 .wikimedia.org
 
 #Google
-google.com=216.58.204.168
-.google.com=216.58.204.168
-.google.com.hk=216.58.204.168
-.googleapis.com=216.58.204.168
-.gstatic.com=216.58.204.168
-.gvt1.com=216.58.204.168
-.googleusercontent.com=108.177.127.133
-.ajax.googleapis.com=216.58.204.168
-.googletagmanager.com=216.58.204.168
-.youtube.com=216.58.204.168
-.ytimg.com=216.58.204.168
-.youtube-nocookie.com=216.58.204.168
-.youtu.be=216.58.204.168
-youtu.be=216.58.204.168
+google.com=59.12.162.21
+.google.com=59.12.162.21
+.google.com.hk=59.12.162.21
+.googleapis.com=59.12.162.21
+.gstatic.com=59.12.162.21
+.gvt1.com=59.12.162.21
+.googleusercontent.com=59.12.162.21
+.ajax.googleapis.com=59.12.162.21
+.googletagmanager.com=59.12.162.21
+.youtube.com=59.12.162.21
+.ytimg.com=59.12.162.21
+.youtube-nocookie.com=59.12.162.21
+.youtu.be=59.12.162.21
+youtu.be=59.12.162.21
 .googlevideo.com=78.129.226.64
 
 #Twitter
+method=w-md5
 .twitter.com
 .twimg.com
 twitter.com=199.59.150.15

@@ -46,6 +46,7 @@ var IPMode = false
 var TFOEnable = false
 var RSTFilterEnable = false
 var DNSFilterEnable = false
+var ProxyServer *net.TCPAddr
 
 const (
 	OPT_NONE   = 0x0
@@ -65,6 +66,7 @@ const (
 	OPT_NOFLAG = 0x10000 << 2
 	OPT_QUIC   = 0x10000 << 3
 	OPT_FILTER = 0x10000 << 4
+	OPT_PROXY  = 0x10000 << 5
 )
 
 var MethodMap = map[string]uint32{
@@ -85,6 +87,7 @@ var MethodMap = map[string]uint32{
 	"no-flag": OPT_NOFLAG,
 	"quic":    OPT_QUIC,
 	"filter":  OPT_FILTER,
+	"proxy":   OPT_PROXY,
 }
 
 var Logger *log.Logger
@@ -465,6 +468,12 @@ func LoadConfig() error {
 						logPrintln(2, string(line))
 					} else if keys[0] == "subdomain" {
 						SubdomainDepth, err = strconv.Atoi(keys[1])
+						if err != nil {
+							log.Println(string(line), err)
+							return err
+						}
+					} else if keys[0] == "proxy" {
+						ProxyServer, err = net.ResolveTCPAddr("tcp", keys[1])
 						if err != nil {
 							log.Println(string(line), err)
 							return err
