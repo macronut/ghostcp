@@ -49,39 +49,43 @@ var DNSFilterEnable = false
 var ProxyServer *net.TCPAddr
 
 const (
-	OPT_NONE   = 0x0
-	OPT_TTL    = 0x1 << 0
-	OPT_MD5    = 0x1 << 1
-	OPT_WMD5   = 0x1 << 2
-	OPT_WACK   = 0x1 << 3
-	OPT_WCSUM  = 0x1 << 4
-	OPT_BAD    = 0x1 << 5
-	OPT_IPOPT  = 0x1 << 6
-	OPT_SEQ    = 0x1 << 7
-	OPT_HTTPS  = 0x1 << 8
-	OPT_MSS    = 0x1 << 9
-	OPT_WTFO   = 0x1 << 10
-	OPT_TFO    = 0x10000 << 0
-	OPT_SYN    = 0x10000 << 1
-	OPT_NOFLAG = 0x10000 << 2
-	OPT_QUIC   = 0x10000 << 3
-	OPT_FILTER = 0x10000 << 4
-	OPT_PROXY  = 0x10000 << 5
+	OPT_NONE  = 0x0
+	OPT_TTL   = 0x1 << 0
+	OPT_MD5   = 0x1 << 1
+	OPT_WMD5  = 0x1 << 2
+	OPT_WACK  = 0x1 << 3
+	OPT_WCSUM = 0x1 << 4
+	OPT_BAD   = 0x1 << 5
+	OPT_IPOPT = 0x1 << 6
+	OPT_SEQ   = 0x1 << 7
+	OPT_HTTPS = 0x1 << 8
+	OPT_MSS   = 0x1 << 9
+	OPT_WTFO  = 0x1 << 10
+
+	OPT_MODE2  = 0x10000 << 0
+	OPT_TFO    = 0x10000 << 1
+	OPT_SYN    = 0x10000 << 2
+	OPT_NOFLAG = 0x10000 << 3
+	OPT_QUIC   = 0x10000 << 4
+	OPT_FILTER = 0x10000 << 5
+	OPT_PROXY  = 0x10000 << 6
 )
 
 var MethodMap = map[string]uint32{
-	"none":    OPT_NONE,
-	"ttl":     OPT_TTL,
-	"mss":     OPT_MSS,
-	"md5":     OPT_MD5,
-	"w-md5":   OPT_WMD5,
-	"w-ack":   OPT_WACK,
-	"w-csum":  OPT_WCSUM,
-	"bad":     OPT_BAD,
-	"ipopt":   OPT_IPOPT,
-	"seq":     OPT_SEQ,
-	"https":   OPT_HTTPS,
-	"w-tfo":   OPT_WTFO,
+	"none":   OPT_NONE,
+	"ttl":    OPT_TTL,
+	"mss":    OPT_MSS,
+	"md5":    OPT_MD5,
+	"w-md5":  OPT_WMD5,
+	"w-ack":  OPT_WACK,
+	"w-csum": OPT_WCSUM,
+	"bad":    OPT_BAD,
+	"ipopt":  OPT_IPOPT,
+	"seq":    OPT_SEQ,
+	"https":  OPT_HTTPS,
+	"w-tfo":  OPT_WTFO,
+
+	"mode2":   OPT_MODE2,
 	"tfo":     OPT_TFO,
 	"syn":     OPT_SYN,
 	"no-flag": OPT_NOFLAG,
@@ -493,28 +497,40 @@ func LoadConfig() error {
 									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, -1, nil, prefix}
 								}
 							} else {
-								ips := strings.Split(keys[1], ",")
-								for _, ip := range ips {
-									config, ok := IPMap[ip]
-									if ok {
-										option |= config.Option
-										if syncMSS == 0 {
-											syncMSS = config.MSS
-										}
+								if strings.HasPrefix(keys[1], "[") {
+									var ok bool
+									config, ok := DomainMap[keys[1][1:len(keys[1])-1]]
+									if !ok {
+										log.Println(string(line), "bad domain")
 									}
-									IPMap[ip] = IPConfig{option, minTTL, maxTTL, syncMSS}
-								}
-								count4, answer4 := packAnswers(ips, 1)
-								count6, answer6 := packAnswers(ips, 28)
+									DomainMap[keys[0]] = config
+								} else {
+									ips := strings.Split(keys[1], ",")
+									for _, ip := range ips {
+										config, ok := IPMap[ip]
+										if ok {
+											option |= config.Option
+											if syncMSS == 0 {
+												syncMSS = config.MSS
+											}
+										}
+										IPMap[ip] = IPConfig{option, minTTL, maxTTL, syncMSS}
+									}
+									count4, answer4 := packAnswers(ips, 1)
+									count6, answer6 := packAnswers(ips, 28)
 
-								if ipv4Enable && count4 == 0 {
-									count4 = -1
-								}
-								if ipv6Enable && count6 == 0 {
-									count6 = -1
-								}
+									if ipv4Enable && count4 == 0 {
+										count4 = -1
+									}
+									if ipv6Enable && count6 == 0 {
+										count6 = -1
+									}
 
-								DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, int16(count4), int16(count6), answer4, answer6}
+									DomainMap[keys[0]] = Config{option,
+										minTTL, maxTTL, syncMSS,
+										int16(count4), int16(count6),
+										answer4, answer6}
+								}
 							}
 						} else {
 							prefix := net.ParseIP(keys[1])

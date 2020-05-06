@@ -9,7 +9,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/williamfhe/godivert"
+	"github.com/macronut/godivert"
 )
 
 type ConnInfo struct {
@@ -179,7 +179,7 @@ func TCPRecv(srcPort int, forward bool) {
 
 const domainBytes = "abcdefghijklmnopqrstuvwxyz0123456789-"
 
-func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet *godivert.Packet, host_offset int, host_length int, id int) (int, error) {
+func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet *godivert.Packet, host_offset int, host_length int, count int) (int, error) {
 	rawbuf := make([]byte, 1500)
 
 	ipv6 := packet.Raw[0]>>4 == 6
@@ -223,9 +223,11 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 	if (info.Option & OPT_WCSUM) != 0 {
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			return 0, err
+		for i := 0; i < count; i++ {
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 
@@ -238,13 +240,16 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 
 		fake_packet.CalcNewChecksum(winDivert)
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			return 0, err
+
+		for i := 0; i < count; i++ {
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 
-	if (info.Option&OPT_WACK) != 0 && id == 1 {
+	if (info.Option & OPT_WACK) != 0 {
 		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
 		ackNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+8:])
 		ackNum += uint32(binary.BigEndian.Uint16(rawbuf[ipheadlen+14:]))
@@ -252,14 +257,12 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 
 		fake_packet.CalcNewChecksum(winDivert)
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			return 0, err
-		}
 
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			return 0, err
+		for i := 0; i < count; i++ {
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 
@@ -278,9 +281,12 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 
 		fake_packet.CalcNewChecksum(winDivert)
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			return 0, err
+
+		for i := 0; i < count; i++ {
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 
@@ -290,13 +296,16 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 
 		fake_packet.CalcNewChecksum(winDivert)
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			return 0, err
+
+		for i := 0; i < count; i++ {
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 
-	if (info.Option&OPT_SEQ != 0) && id == 0 {
+	if (info.Option&OPT_SEQ != 0) && count > 1 {
 		copy(rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
 		seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
 		fakeLen := ipheadlen + tcpheadlen + 1220
@@ -330,9 +339,12 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 
 		fake_packet.CalcNewChecksum(winDivert)
-		_, err = winDivert.Send(&fake_packet)
-		if err != nil {
-			return 0, err
+
+		for i := 0; i < count; i++ {
+			_, err = winDivert.Send(&fake_packet)
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
 
@@ -690,13 +702,18 @@ func TCPDaemon(address string, forward bool) {
 					continue
 				}
 
+				count := 1
 				if (info.Option & 0xFFFF) != 0 {
-					host_length, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 0)
-					if err != nil {
-						if LogLevel > 0 {
-							log.Println(err)
+					if info.Option&OPT_MODE2 == 0 {
+						host_length, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, count)
+						if err != nil {
+							if LogLevel > 0 {
+								log.Println(err)
+							}
+							continue
 						}
-						continue
+					} else {
+						count = 2
 					}
 				}
 
@@ -743,7 +760,7 @@ func TCPDaemon(address string, forward bool) {
 				}
 
 				if (info.Option & 0xFFFF) != 0 {
-					_, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 1)
+					_, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, count)
 					if err != nil {
 						if LogLevel > 0 {
 							log.Println(err)
