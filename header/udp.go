@@ -192,7 +192,13 @@ func DNSDaemon() {
 
 						//Filter
 						if config.Option&OPT_FILTER != 0 {
-							ips = TCPDetection(winDivert, *packet.Addr, ips, 443, int(config.TTL))
+							if qtype == 28 && ipv6 {
+								ips = TCPDetection(winDivert, *packet.Addr, rawbuf[24:40], ips, 443, int(config.TTL))
+							} else if qtype == 1 && !ipv6 {
+								ips = TCPDetection(winDivert, *packet.Addr, rawbuf[16:20], ips, 443, int(config.TTL))
+							} else {
+								ips = TCPDetection(winDivert, *packet.Addr, nil, ips, 443, int(config.TTL))
+							}
 							count, ans := packAnswers(ips, qtype)
 							binary.BigEndian.PutUint16(response[6:8], uint16(count))
 							copy(response[off:], ans)

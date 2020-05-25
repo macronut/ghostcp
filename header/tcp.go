@@ -351,7 +351,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 	return host_length, nil
 }
 
-func TCPDetection(winDivert *godivert.WinDivertHandle, winDivertAddr godivert.WinDivertAddress, ips []string, port, ttl int) []string {
+func TCPDetection(winDivert *godivert.WinDivertHandle, winDivertAddr godivert.WinDivertAddress, srcIP []byte, ips []string, port, ttl int) []string {
 	var packet godivert.Packet
 	packet.PacketLen = 40
 	winDivertAddr.Data = 1 << 4
@@ -368,8 +368,13 @@ func TCPDetection(winDivert *godivert.WinDivertHandle, winDivertAddr godivert.Wi
 		0x50, TCP_SYN, 0, 0,
 		0, 0, 0, 0}
 
-	srcIP := getMyIPv4()
-	copy(packet.Raw[12:], srcIP)
+	if srcIP != nil {
+		copy(packet.Raw[12:], srcIP)
+	} else {
+		srcIP := getMyIPv4()
+		copy(packet.Raw[12:], srcIP)
+	}
+
 	binary.BigEndian.PutUint16(packet.Raw[22:], uint16(port))
 
 	for _, addr := range ips {
