@@ -61,6 +61,7 @@ const (
 	OPT_HTTPS = 0x1 << 8
 	OPT_MSS   = 0x1 << 9
 	OPT_WTFO  = 0x1 << 10
+	OPT_SSEG  = 0x1 << 11
 
 	OPT_MODE2  = 0x10000 << 0
 	OPT_TFO    = 0x10000 << 1
@@ -84,6 +85,7 @@ var MethodMap = map[string]uint32{
 	"seq":    OPT_SEQ,
 	"https":  OPT_HTTPS,
 	"w-tfo":  OPT_WTFO,
+	"s-seg":  OPT_SSEG,
 
 	"mode2":   OPT_MODE2,
 	"tfo":     OPT_TFO,

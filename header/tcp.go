@@ -709,6 +709,21 @@ func TCPDaemon(address string, forward bool) {
 
 				count := 1
 				if (info.Option & 0xFFFF) != 0 {
+					if (info.Option & OPT_SSEG) != 0 {
+						copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen+4])
+						prefix_packet := *packet
+						prefix_packet.Raw = tmp_rawbuf[:ipheadlen+tcpheadlen+4]
+						prefix_packet.PacketLen = uint(ipheadlen + tcpheadlen + 4)
+						prefix_packet.CalcNewChecksum(winDivert)
+						_, err = winDivert.Send(&prefix_packet)
+						if err != nil {
+							if LogLevel > 0 {
+								log.Println(err)
+							}
+							continue
+						}
+					}
+
 					if info.Option&OPT_MODE2 == 0 {
 						host_length, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, count)
 						if err != nil {
@@ -752,9 +767,19 @@ func TCPDaemon(address string, forward bool) {
 					tmp_rawbuf[ipheadlen+13] &= ^TCP_PSH
 				}
 
+				seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
 				prefix_packet := *packet
-				prefix_packet.Raw = tmp_rawbuf[:total_cut_offset]
-				prefix_packet.PacketLen = uint(total_cut_offset)
+				if (info.Option & OPT_SSEG) != 0 {
+					copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[4:total_cut_offset])
+					totallen := uint16(packet.PacketLen) - uint16(host_cut_offset) - 4
+					binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+4)
+
+					prefix_packet.Raw = tmp_rawbuf[:totallen]
+					prefix_packet.PacketLen = uint(totallen)
+				} else {
+					prefix_packet.Raw = tmp_rawbuf[:total_cut_offset]
+					prefix_packet.PacketLen = uint(total_cut_offset)
+				}
 				prefix_packet.CalcNewChecksum(winDivert)
 				_, err = winDivert.Send(&prefix_packet)
 				if err != nil {
@@ -774,7 +799,6 @@ func TCPDaemon(address string, forward bool) {
 					}
 				}
 
-				seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
 				copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen])
 				copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[total_cut_offset:])
 				totallen := uint16(packet.PacketLen) - uint16(host_cut_offset)

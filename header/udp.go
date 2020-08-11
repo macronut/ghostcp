@@ -242,6 +242,7 @@ func DNSDaemon() {
 					}(int(config.Option), config.Answers6, off)
 				}
 			} else {
+				logPrintln(3, qname)
 				_, err = winDivert.Send(packet)
 			}
 		}
