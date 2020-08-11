@@ -61,15 +61,15 @@ const (
 	OPT_HTTPS = 0x1 << 8
 	OPT_MSS   = 0x1 << 9
 	OPT_WTFO  = 0x1 << 10
-	OPT_SSEG  = 0x1 << 11
 
 	OPT_MODE2  = 0x10000 << 0
 	OPT_TFO    = 0x10000 << 1
 	OPT_SYN    = 0x10000 << 2
 	OPT_NOFLAG = 0x10000 << 3
-	OPT_QUIC   = 0x10000 << 4
-	OPT_FILTER = 0x10000 << 5
-	OPT_PROXY  = 0x10000 << 6
+	OPT_SSEG   = 0x10000 << 4
+	OPT_QUIC   = 0x10000 << 5
+	OPT_FILTER = 0x10000 << 6
+	OPT_PROXY  = 0x10000 << 7
 )
 
 var MethodMap = map[string]uint32{
