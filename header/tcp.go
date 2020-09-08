@@ -710,7 +710,7 @@ func TCPDaemon(address string, forward bool) {
 				if (info.Option & OPT_SSEG) != 0 {
 					copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen+4])
 					if ipv6 {
-						binary.BigEndian.PutUint16(tmp_rawbuf[4:], 4)
+						binary.BigEndian.PutUint16(tmp_rawbuf[4:], uint16(tcpheadlen+4))
 						if info.MAXTTL > 0 {
 							tmp_rawbuf[7] = info.MAXTTL
 						}
