@@ -46,7 +46,6 @@ var IPMode = false
 var TFOEnable = false
 var RSTFilterEnable = false
 var DNSFilterEnable = false
-var ProxyServer *net.TCPAddr
 
 const (
 	OPT_NONE  = 0x0
@@ -61,6 +60,7 @@ const (
 	OPT_HTTPS = 0x1 << 8
 	OPT_MSS   = 0x1 << 9
 	OPT_WTFO  = 0x1 << 10
+	OPT_WULEN = 0x1 << 11
 
 	OPT_MODE2  = 0x10000 << 0
 	OPT_TFO    = 0x10000 << 1
@@ -69,7 +69,6 @@ const (
 	OPT_SSEG   = 0x10000 << 4
 	OPT_QUIC   = 0x10000 << 5
 	OPT_FILTER = 0x10000 << 6
-	OPT_PROXY  = 0x10000 << 7
 )
 
 var MethodMap = map[string]uint32{
@@ -85,15 +84,15 @@ var MethodMap = map[string]uint32{
 	"seq":    OPT_SEQ,
 	"https":  OPT_HTTPS,
 	"w-tfo":  OPT_WTFO,
-	"s-seg":  OPT_SSEG,
+	"w-ulen": OPT_WULEN,
 
 	"mode2":   OPT_MODE2,
 	"tfo":     OPT_TFO,
 	"syn":     OPT_SYN,
 	"no-flag": OPT_NOFLAG,
+	"s-seg":   OPT_SSEG,
 	"quic":    OPT_QUIC,
 	"filter":  OPT_FILTER,
-	"proxy":   OPT_PROXY,
 }
 
 var Logger *log.Logger
@@ -369,7 +368,7 @@ func LoadConfig() error {
 	IPMap = make(map[string]IPConfig)
 	BadIPMap = make(map[string]bool)
 
-	conf, err := os.Open("config")
+	conf, err := os.Open("default.conf")
 	if err != nil {
 		return err
 	}
@@ -474,12 +473,6 @@ func LoadConfig() error {
 						logPrintln(2, string(line))
 					} else if keys[0] == "subdomain" {
 						SubdomainDepth, err = strconv.Atoi(keys[1])
-						if err != nil {
-							log.Println(string(line), err)
-							return err
-						}
-					} else if keys[0] == "proxy" {
-						ProxyServer, err = net.ResolveTCPAddr("tcp", keys[1])
 						if err != nil {
 							log.Println(string(line), err)
 							return err

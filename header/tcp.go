@@ -499,23 +499,6 @@ func TCPDaemon(address string, forward bool) {
 					continue
 				}
 
-				if info.Option == OPT_PROXY {
-					localIP := net.ParseIP("127.0.0.1")
-					packet.SetSrcIP(localIP)
-					packet.SetDstIP(localIP)
-					//packet.SetDstIP(packet.SrcIP())
-					packet.SetDstPort(6)
-					packet.CalcNewChecksum(winDivert)
-
-					_, err = winDivert.Send(packet)
-					if err != nil {
-						if LogLevel > 0 {
-							log.Println(err)
-						}
-					}
-					continue
-				}
-
 				tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 				dstPort := int(binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:]))
 
@@ -864,29 +847,6 @@ func TCPDaemon(address string, forward bool) {
 
 					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 
-					if config.Option == OPT_PROXY {
-						port, _ := packet.DstPort()
-						if ipv6 {
-							ProxyList6[srcPort] = &ProxyInfo{packet.SrcIP(), dstIP, port}
-						} else {
-							ProxyList4[srcPort] = &ProxyInfo{packet.SrcIP(), dstIP, port}
-						}
-						localIP := net.ParseIP("127.0.0.1")
-						packet.SetSrcIP(localIP)
-						packet.SetDstIP(localIP)
-						//packet.SetDstIP(packet.SrcIP())
-						packet.SetDstPort(6)
-						packet.CalcNewChecksum(winDivert)
-
-						_, err = winDivert.Send(packet)
-						if err != nil {
-							if LogLevel > 0 {
-								log.Println(err)
-							}
-						}
-						continue
-					}
-
 					if config.Option&OPT_HTTPS != 0 {
 						if tcpAddr.Port == 80 {
 							copy(rawbuf, packet.Raw)
@@ -1009,24 +969,6 @@ func TCPDaemon(address string, forward bool) {
 					}
 				}
 			} else {
-				var info *ConnInfo
-				if ipv6 {
-					info = PortList6[srcPort]
-				} else {
-					info = PortList4[srcPort]
-				}
-
-				if info != nil {
-					if info.Option == OPT_PROXY {
-						localIP := net.ParseIP("127.0.0.1")
-						packet.SetSrcIP(localIP)
-						packet.SetDstIP(localIP)
-						//packet.SetDstIP(packet.SrcIP())
-						packet.SetDstPort(6)
-						packet.CalcNewChecksum(winDivert)
-					}
-				}
-
 				_, err = winDivert.Send(packet)
 				if err != nil {
 					if LogLevel > 0 {
@@ -1255,82 +1197,4 @@ func ProxyRedirect(forward bool) {
 			}
 		}
 	}()
-}
-
-func TCPProxy() error {
-	serverAddr, err := net.ResolveTCPAddr("tcp", "127.0.0.1:6")
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-
-	l, err := net.ListenTCP("tcp", serverAddr)
-
-	if err != nil {
-		log.Println(err)
-		return err
-	}
-	defer l.Close()
-
-	log.Println("Start TCPProxy")
-	for {
-		conn, err := l.AcceptTCP()
-		if err != nil {
-			log.Println(err)
-			return err
-		}
-
-		go func() {
-			defer conn.Close()
-
-			remoteAddr := conn.RemoteAddr().(*net.TCPAddr)
-			ip4 := remoteAddr.IP.To4()
-			var info *ProxyInfo
-			if ip4 != nil {
-				info = ProxyList4[remoteAddr.Port]
-			} else {
-				info = ProxyList6[remoteAddr.Port]
-			}
-			if info != nil {
-				if info.Port == 443 || info.Port == 80 {
-					var b [1460]byte
-					n, err := conn.Read(b[:])
-					if err != nil {
-						log.Println(err)
-						return
-					}
-					var offset, length int
-					if info.Port == 80 {
-						offset, length = getHost(b[:n])
-					} else {
-						offset, length = getSNI(b[:n])
-					}
-
-					if length > 0 {
-						host := string(b[offset : offset+length])
-						if LogLevel > 0 {
-							fmt.Println("Socks5", host, info.Port)
-						}
-						SocksProxyHost(conn, host, 443, ProxyServer, b[:n])
-					} else {
-						if LogLevel > 0 {
-							fmt.Println("Socks5", info.DstIP, info.Port)
-						}
-						SocksProxyAddr(conn, info.DstIP, int(info.Port), ProxyServer, b[:n])
-					}
-				} else {
-					if LogLevel > 0 {
-						fmt.Println("Socks5", info.DstIP, info.Port)
-					}
-					SocksProxyAddr(conn, info.DstIP, int(info.Port), ProxyServer, nil)
-				}
-				if ip4 != nil {
-					ProxyList4[remoteAddr.Port] = nil
-				} else {
-					ProxyList6[remoteAddr.Port] = nil
-				}
-			}
-		}()
-	}
-	return nil
 }

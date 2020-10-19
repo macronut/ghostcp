@@ -403,7 +403,19 @@ func UDPDaemon(dstPort int, forward bool) {
 
 			config, ok := IPLookup(packet.DstIP().String())
 			if ok {
-				if config.Option == 0 || (config.Option|OPT_QUIC != 0) {
+				if config.Option == 0 || (config.Option&OPT_QUIC != 0) {
+					if config.Option&OPT_WULEN != 0 {
+						ipv6 := packet.Raw[0]>>4 == 6
+						var ipheadlen int
+						if ipv6 {
+							ipheadlen = 40
+						} else {
+							ipheadlen = int(packet.Raw[0]&0xF) * 4
+						}
+						//ulen := binary.BigEndian.Uint16(packet.Raw[ipheadlen+udpheadlen:])
+						binary.BigEndian.PutUint16(packet.Raw[ipheadlen+4:], 0)
+						packet.CalcNewChecksum(winDivert)
+					}
 					_, err = winDivert.Send(packet)
 				}
 			} else {
