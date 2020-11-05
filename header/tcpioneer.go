@@ -45,7 +45,7 @@ var IPBlock = false
 var IPMode = false
 var TFOEnable = false
 var RSTFilterEnable = false
-var DNSFilterEnable = false
+var DetectEnable = false
 
 const (
 	OPT_NONE  = 0x0
@@ -440,7 +440,7 @@ func LoadConfig() error {
 								case OPT_TFO:
 									TFOEnable = true
 								case OPT_FILTER:
-									DNSFilterEnable = true
+									DetectEnable = true
 								}
 							} else {
 								logPrintln(1, "Unsupported method: "+m)

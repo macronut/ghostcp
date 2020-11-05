@@ -56,35 +56,36 @@ func getCookies(option []byte) []byte {
 }
 
 func TCPRecv(srcPort int, forward bool) {
-	if (TFOEnable || RSTFilterEnable || DNSFilterEnable) == false {
+	if (TFOEnable || RSTFilterEnable || DetectEnable) == false {
 		return
 	}
 
 	var filter string
 	var layer uint8
 	if forward {
-		filter = fmt.Sprintf("tcp.SrcPort == %d", srcPort)
+		filter = fmt.Sprintf("tcp.SrcPort == %d and (", srcPort)
 		layer = 1
 	} else {
-		filter = fmt.Sprintf("inbound and tcp.SrcPort == %d", srcPort)
+		filter = fmt.Sprintf("inbound and tcp.SrcPort == %d and (", srcPort)
 		layer = 0
 	}
 
 	if TFOEnable {
-		if RSTFilterEnable {
-			filter += " and (tcp.Syn or tcp.Rst)"
-		} else {
-			if DNSFilterEnable {
-				filter += " and (tcp.Syn or (tcp.Rst and tcp.DstPort==1))"
-			} else {
-				filter += " and tcp.Syn"
-			}
-		}
-	} else if RSTFilterEnable {
-		filter += " and tcp.Rst"
-	} else if DNSFilterEnable {
-		filter += " and tcp.Rst and tcp.DstPort==1"
+		filter += "tcp.Syn"
 	}
+	if RSTFilterEnable {
+		if TFOEnable {
+			filter += " or "
+		}
+		filter += "tcp.Rst"
+	}
+	if DetectEnable {
+		if RSTFilterEnable {
+			filter += " or "
+		}
+		filter += "tcp.DstPort==1"
+	}
+	filter += ")"
 
 	mutex.Lock()
 	winDivert, err := godivert.WinDivertOpen(filter, layer, 1, 0)
@@ -158,7 +159,7 @@ func TCPRecv(srcPort int, forward bool) {
 					}
 				}
 			} else if packet.Raw[ipheadlen+13]|TCP_RST != 0 {
-				if DNSFilterEnable {
+				if DetectEnable {
 					dstPort, _ := packet.DstPort()
 					if dstPort == 1 {
 						BadIPMap[packet.SrcIP().String()] = true
