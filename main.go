@@ -14,6 +14,7 @@ import (
 )
 
 var ServiceMode bool = true
+var ScanIPRange string = ""
 
 func StartService() {
 	runtime.GOMAXPROCS(1)
@@ -62,6 +63,10 @@ func StartService() {
 		tcpioneer.DNSDaemon()
 	}
 
+	if ScanIPRange != "" {
+		go tcpioneer.Scan(ScanIPRange)
+	}
+
 	fmt.Println("Service Start")
 	tcpioneer.Wait()
 }
@@ -83,12 +88,12 @@ func main() {
 	var flagServiceUninstall bool
 	var flagServiceStart bool
 	var flagServiceStop bool
-	var flagScanIPRange string
+
 	flag.BoolVar(&flagServiceInstall, "install", false, "Install service")
 	flag.BoolVar(&flagServiceUninstall, "remove", false, "Remove service")
 	flag.BoolVar(&flagServiceStart, "start", false, "Start service")
 	flag.BoolVar(&flagServiceStop, "stop", false, "Stop service")
-	flag.StringVar(&flagScanIPRange, "scan", "", "Scan IP Range")
+	flag.StringVar(&ScanIPRange, "scan", "", "Scan IP Range")
 	flag.Parse()
 
 	appPath, err := winsvc.GetAppPath()
@@ -144,10 +149,6 @@ func main() {
 			log.Fatalf("svc.Run: %v\n", err)
 		}
 		return
-	}
-
-	if flagScanIPRange != "" {
-		go tcpioneer.Scan(flagScanIPRange)
 	}
 
 	ServiceMode = false

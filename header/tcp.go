@@ -157,6 +157,13 @@ func TCPRecv(srcPort int, forward bool) {
 						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
 						packet.CalcNewChecksum(winDivert)
 					}
+				} else {
+					dstPort, _ := packet.DstPort()
+					if dstPort == 1 {
+						goodIP := packet.SrcIP()
+						IPMap[goodIP.String()] = IPConfig{OPT_WMD5, 64, 64, 0}
+						go CheckServer("https://www.google.com", goodIP)
+					}
 				}
 			} else if packet.Raw[ipheadlen+13]|TCP_RST != 0 {
 				if DetectEnable {
@@ -613,45 +620,9 @@ func TCPDaemon(address string, forward bool) {
 					if seqNum == info.SeqNum+1 {
 						if info.Option&OPT_TFO != 0 {
 							if payloadLen > 3 {
-								//dstAddr := packet.DstIP().String()
-								//cookies, _ := CookiesMap[dstAddr]
-								var cookies []byte = nil
-
-								if cookies != nil {
-									copy(rawbuf, packet.Raw[:ipheadlen+20])
-									seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
-									binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum-1)
-									binary.BigEndian.PutUint32(rawbuf[ipheadlen+8:], 0)
-									packet.PacketLen = uint(ipheadlen + 20)
-
-									copy(rawbuf[packet.PacketLen:], SynOption)
-
-									packet.PacketLen += uint(len(SynOption))
-									rawbuf[ipheadlen+12] = byte(len(SynOption)/4+5) << 4
-									cookiesLen := len(cookies)
-									optLen := cookiesLen + 2
-									rawbuf[int(packet.PacketLen)] = 34
-									rawbuf[int(packet.PacketLen)+1] = byte(optLen)
-									copy(rawbuf[int(packet.PacketLen)+2:], cookies)
-									rawbuf[ipheadlen+12] += byte((optLen+3)/4) << 4
-									rawbuf[ipheadlen+13] = TCP_SYN
-									packet.PacketLen += uint(optLen * 4)
-
-									copy(rawbuf[packet.PacketLen:], packet.Raw[ipheadlen+tcpheadlen:])
-									packet.PacketLen += uint(payloadLen)
-
-									if ipv6 {
-										binary.BigEndian.PutUint16(rawbuf[4:], uint16(int(packet.PacketLen)-ipheadlen))
-									} else {
-										binary.BigEndian.PutUint16(rawbuf[2:], uint16(packet.PacketLen))
-									}
-
-									packet.Raw = rawbuf[:packet.PacketLen]
-								} else {
-									packet.Raw[ipheadlen+tcpheadlen] = 0xFF
-									packet.Raw[ipheadlen+tcpheadlen+1] = 0xFF
-									packet.Raw[ipheadlen+tcpheadlen+2] = 0xFF
-								}
+								packet.Raw[ipheadlen+tcpheadlen] = 0xFF
+								packet.Raw[ipheadlen+tcpheadlen+1] = 0xFF
+								packet.Raw[ipheadlen+tcpheadlen+2] = 0xFF
 							} else {
 								seqNum += 3
 								binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], seqNum)

@@ -330,13 +330,21 @@ func getSNIFromQUIC(payload []byte) string {
 func getMyIPv4() net.IP {
 	s, err := net.InterfaceAddrs()
 	if err != nil {
+		log.Println(err)
 		return nil
 	}
 	for _, a := range s {
-		strIP := strings.SplitN(a.String(), "/", 2)
-		if strIP[1] == "24" && !strings.HasSuffix(strIP[0], ".1") {
-			ip := net.ParseIP(strIP[0])
-			ip4 := ip.To4()
+		ip, ipNet, err := net.ParseCIDR(a.String())
+		if err != nil {
+			log.Println(err)
+			return nil
+		}
+		strIP := ip
+		gateway := ip.Mask(ipNet.Mask)
+		gateway[len(gateway)-1] += 1
+
+		if !strIP.Equal(gateway) {
+			ip4 := strIP.To4()
 			if ip4 != nil {
 				return ip4
 			}

@@ -1,9 +1,12 @@
 package tcpioneer
 
 import (
+	"crypto/tls"
 	"encoding/binary"
+	"fmt"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/macronut/godivert"
@@ -18,12 +21,13 @@ func inc(ip net.IP) {
 	}
 }
 
-func Scan(ipRange string) error {
+func Scan(ipRange string) {
 	mutex.Lock()
 	winDivert, err := godivert.NewWinDivertHandle("false")
 	mutex.Unlock()
 	if err != nil {
-		return err
+		log.Println(err)
+		return
 	}
 	DetectEnable = true
 
@@ -50,9 +54,12 @@ func Scan(ipRange string) error {
 
 	binary.BigEndian.PutUint16(packet.Raw[22:], uint16(443))
 
+	fmt.Println("Start scanning", ipRange, "from", srcIP)
+
 	ip, ipNet, err := net.ParseCIDR(ipRange)
 	if err != nil {
-		return err
+		log.Println(err)
+		return
 	}
 
 	for iptmp := ip.Mask(ipNet.Mask); ipNet.Contains(iptmp); inc(iptmp) {
@@ -68,5 +75,33 @@ func Scan(ipRange string) error {
 		time.Sleep(time.Millisecond)
 	}
 
-	return nil
+	fmt.Println("End scan")
+}
+
+func CheckServer(url string, ip net.IP) {
+	d := net.Dialer{Timeout: time.Second * 2}
+	conf := &tls.Config{
+		ServerName:         "www.google.com",
+		InsecureSkipVerify: true,
+	}
+	addr := net.TCPAddr{IP: ip, Port: 443}
+	conn, err := tls.DialWithDialer(&d, "tcp", addr.String(), conf)
+
+	if err != nil {
+		return
+	}
+	request := []byte("HEAD / HTTP/1.1\r\nHost: www.google.com\r\n\r\n")
+	_, err = conn.Write(request)
+	if err != nil {
+		return
+	}
+	var reponse [2048]byte
+	n, err := conn.Read(reponse[:])
+	if err != nil {
+		return
+	}
+
+	if strings.HasPrefix(string(reponse[:n]), "HTTP/1.1 200 ") {
+		fmt.Println("www.google.com=", ip)
+	}
 }
