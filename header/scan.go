@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/macronut/godivert"
@@ -78,30 +80,51 @@ func Scan(ipRange string) {
 	fmt.Println("End scan")
 }
 
-func CheckServer(url string, ip net.IP) {
+var checkMutex sync.Mutex
+
+func CheckServer(URL string, ip net.IP) {
+	//fmt.Println(ip, "found")
+	u, err := url.Parse(URL)
+	if err != nil {
+		log.Println(err, URL)
+		return
+	}
+
+	if u.Scheme != "https" {
+		log.Println(URL, "is not https")
+		return
+	}
+
 	d := net.Dialer{Timeout: time.Second * 2}
 	conf := &tls.Config{
-		ServerName:         "www.google.com",
-		InsecureSkipVerify: true,
+		ServerName: u.Host,
+		//InsecureSkipVerify: true,
 	}
 	addr := net.TCPAddr{IP: ip, Port: 443}
+	//checkMutex.Lock()
+	//defer checkMutex.Unlock()
 	conn, err := tls.DialWithDialer(&d, "tcp", addr.String(), conf)
+	if err != nil {
+		//log.Println(err, ip)
+		return
+	}
+	defer conn.Close()
 
+	request := fmt.Sprintf("HEAD %s HTTP/1.1\r\nHost: %s\r\n\r\n", u.Path, u.Host)
+	_, err = conn.Write([]byte(request))
 	if err != nil {
+		//log.Println(err, ip)
 		return
 	}
-	request := []byte("HEAD / HTTP/1.1\r\nHost: www.google.com\r\n\r\n")
-	_, err = conn.Write(request)
-	if err != nil {
-		return
-	}
+
 	var reponse [2048]byte
 	n, err := conn.Read(reponse[:])
 	if err != nil {
+		//log.Println(err, ip)
 		return
 	}
 
 	if strings.HasPrefix(string(reponse[:n]), "HTTP/1.1 200 ") {
-		fmt.Println("www.google.com=", ip)
+		fmt.Printf(ip.String() + ",")
 	}
 }

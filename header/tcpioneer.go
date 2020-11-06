@@ -339,15 +339,20 @@ func getMyIPv4() net.IP {
 			log.Println(err)
 			return nil
 		}
-		strIP := ip
+		myIP := ip
 		gateway := ip.Mask(ipNet.Mask)
-		gateway[len(gateway)-1] += 1
+		if gateway.Equal(net.IPv4(169, 254, 0, 0)) {
+			continue
+		}
 
-		if !strIP.Equal(gateway) {
-			ip4 := strIP.To4()
-			if ip4 != nil {
-				return ip4
-			}
+		gateway[len(gateway)-1] += 1
+		if myIP.Equal(gateway) {
+			continue
+		}
+
+		ip4 := myIP.To4()
+		if ip4 != nil {
+			return ip4
 		}
 	}
 	return nil

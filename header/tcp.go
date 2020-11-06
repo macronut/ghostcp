@@ -158,11 +158,29 @@ func TCPRecv(srcPort int, forward bool) {
 						packet.CalcNewChecksum(winDivert)
 					}
 				} else {
-					dstPort, _ := packet.DstPort()
 					if dstPort == 1 {
 						goodIP := packet.SrcIP()
+						myIP := packet.DstIP()
 						IPMap[goodIP.String()] = IPConfig{OPT_WMD5, 64, 64, 0}
-						go CheckServer("https://www.google.com", goodIP)
+						packet.SetSrcIP(myIP)
+						packet.SetDstIP(goodIP)
+						srcPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen:])
+						packet.SetSrcPort(dstPort)
+						packet.SetDstPort(srcPort)
+						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
+						ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
+						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
+						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], seqNum+1)
+						packet.Raw[ipheadlen+13] = TCP_RST | TCP_ACK
+						packet.Addr.Data = 1 << 4
+
+						packet.CalcNewChecksum(winDivert)
+						_, err := winDivert.Send(packet)
+						if err != nil {
+							log.Println(err)
+						}
+
+						go CheckServer("https://www.google.com/", goodIP)
 					}
 				}
 			} else if packet.Raw[ipheadlen+13]|TCP_RST != 0 {
