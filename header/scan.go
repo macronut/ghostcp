@@ -95,6 +95,12 @@ func CheckServer(URL string, ip net.IP) {
 		return
 	}
 
+	c, ok := domainLookup(u.Host)
+	if ok {
+		IPMap[ip.String()] = IPConfig{c.Option, c.TTL, c.MAXTTL, c.MSS}
+		time.Sleep(time.Millisecond)
+	}
+
 	d := net.Dialer{Timeout: time.Second * 2}
 	conf := &tls.Config{
 		ServerName: u.Host,
@@ -109,6 +115,10 @@ func CheckServer(URL string, ip net.IP) {
 		return
 	}
 	defer conn.Close()
+
+	if u.Path == "" {
+		u.Path = "/"
+	}
 
 	request := fmt.Sprintf("HEAD %s HTTP/1.1\r\nHost: %s\r\n\r\n", u.Path, u.Host)
 	_, err = conn.Write([]byte(request))

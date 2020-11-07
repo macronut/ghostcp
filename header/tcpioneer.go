@@ -47,6 +47,8 @@ var TFOEnable = false
 var RSTFilterEnable = false
 var DetectEnable = false
 
+var ScanURL string = ""
+
 const (
 	OPT_NONE  = 0x0
 	OPT_TTL   = 0x1 << 0

@@ -160,8 +160,12 @@ func TCPRecv(srcPort int, forward bool) {
 				} else {
 					if dstPort == 1 {
 						goodIP := packet.SrcIP()
+						_, ok := IPMap[goodIP.String()]
+						if ok {
+							continue
+						}
+
 						myIP := packet.DstIP()
-						IPMap[goodIP.String()] = IPConfig{OPT_WMD5, 64, 64, 0}
 						packet.SetSrcIP(myIP)
 						packet.SetDstIP(goodIP)
 						srcPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen:])
@@ -180,7 +184,11 @@ func TCPRecv(srcPort int, forward bool) {
 							log.Println(err)
 						}
 
-						go CheckServer("https://www.google.com/", goodIP)
+						if ScanURL == "" {
+							fmt.Println(goodIP, "found")
+						} else {
+							go CheckServer(ScanURL, goodIP)
+						}
 					}
 				}
 			} else if packet.Raw[ipheadlen+13]|TCP_RST != 0 {
