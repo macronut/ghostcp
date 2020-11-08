@@ -187,7 +187,7 @@ func TCPRecv(srcPort int, forward bool) {
 						if ScanURL == "" {
 							fmt.Println(goodIP, "found")
 						} else {
-							go CheckServer(ScanURL, goodIP)
+							go CheckServer(ScanURL, goodIP, ScanTimeout)
 						}
 					}
 				}

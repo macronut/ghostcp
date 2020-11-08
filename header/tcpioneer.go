@@ -48,6 +48,7 @@ var RSTFilterEnable = false
 var DetectEnable = false
 
 var ScanURL string = ""
+var ScanTimeout uint = 0
 
 const (
 	OPT_NONE  = 0x0

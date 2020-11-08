@@ -82,7 +82,7 @@ func Scan(ipRange string) {
 
 var checkMutex sync.Mutex
 
-func CheckServer(URL string, ip net.IP) {
+func CheckServer(URL string, ip net.IP, timeout uint) {
 	//fmt.Println(ip, "found")
 	u, err := url.Parse(URL)
 	if err != nil {
@@ -101,15 +101,21 @@ func CheckServer(URL string, ip net.IP) {
 		time.Sleep(time.Millisecond)
 	}
 
-	d := net.Dialer{Timeout: time.Second * 2}
+	var conn net.Conn
+	addr := net.TCPAddr{IP: ip, Port: 443}
 	conf := &tls.Config{
 		ServerName: u.Host,
 		//InsecureSkipVerify: true,
 	}
-	addr := net.TCPAddr{IP: ip, Port: 443}
-	//checkMutex.Lock()
-	//defer checkMutex.Unlock()
-	conn, err := tls.DialWithDialer(&d, "tcp", addr.String(), conf)
+	if timeout != 0 {
+		d := net.Dialer{Timeout: time.Millisecond * time.Duration(timeout)}
+		//checkMutex.Lock()
+		//defer checkMutex.Unlock()
+		conn, err = tls.DialWithDialer(&d, "tcp", addr.String(), conf)
+	} else {
+		conn, err = tls.Dial("tcp", addr.String(), conf)
+	}
+
 	if err != nil {
 		//log.Println(err, ip)
 		return

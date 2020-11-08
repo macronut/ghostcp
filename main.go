@@ -16,6 +16,7 @@ import (
 var ServiceMode bool = true
 var ScanIPRange string = ""
 var ScanURL string = ""
+var ScanTimeout uint = 0
 
 func StartService() {
 	runtime.GOMAXPROCS(1)
@@ -67,6 +68,7 @@ func StartService() {
 	if ScanIPRange != "" {
 		go tcpioneer.Scan(ScanIPRange)
 		tcpioneer.ScanURL = ScanURL
+		tcpioneer.ScanTimeout = ScanTimeout
 	}
 
 	fmt.Println("Service Start")
@@ -97,6 +99,7 @@ func main() {
 	flag.BoolVar(&flagServiceStop, "stop", false, "Stop service")
 	flag.StringVar(&ScanIPRange, "scanip", "", "Scan IP Range")
 	flag.StringVar(&ScanURL, "scanurl", "", "Scan URL")
+	flag.UintVar(&ScanTimeout, "scantimeout", 0, "Scan Timeout")
 	flag.Parse()
 
 	appPath, err := winsvc.GetAppPath()
