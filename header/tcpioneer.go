@@ -498,6 +498,8 @@ func LoadConfig() error {
 						if err != nil {
 							log.Println(string(line), err)
 							return err
+						} else {
+							logPrintln(1, string(line))
 						}
 					} else {
 						ip := net.ParseIP(keys[0])

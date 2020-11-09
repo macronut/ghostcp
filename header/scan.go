@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/macronut/godivert"
@@ -23,7 +22,7 @@ func inc(ip net.IP) {
 	}
 }
 
-func Scan(ipRange string) {
+func Scan(ipRange string, speed int) {
 	mutex.Lock()
 	winDivert, err := godivert.NewWinDivertHandle("false")
 	mutex.Unlock()
@@ -36,11 +35,10 @@ func Scan(ipRange string) {
 	var winDivertAddr godivert.WinDivertAddress
 
 	var packet godivert.Packet
-	packet.PacketLen = 40
 	winDivertAddr.Data = 1 << 4
 	packet.Addr = &winDivertAddr
 	packet.Raw = []byte{
-		0x45, 0, 0, 40,
+		0x45, 0, 0, 0,
 		0, 0, 0x40, 0,
 		byte(64), 6, 0, 0,
 		0, 0, 0, 0,
@@ -48,8 +46,13 @@ func Scan(ipRange string) {
 		0, 1, 0, 0,
 		0, 0, 0, 0,
 		0, 0, 0, 0,
-		0x50, TCP_SYN, 0, 0,
-		0, 0, 0, 0}
+		0x80, TCP_SYN, 0xFA, 0xF0,
+		0, 0, 0, 0,
+		2, 4, 0x5, 0xB4,
+		1, 3, 0x3, 0x8,
+		1, 1, 4, 0x2}
+	packet.PacketLen = uint(len(packet.Raw))
+	binary.BigEndian.PutUint16(packet.Raw[2:], uint16(packet.PacketLen))
 
 	srcIP := getMyIPv4()
 	copy(packet.Raw[12:], srcIP)
@@ -64,6 +67,9 @@ func Scan(ipRange string) {
 		return
 	}
 
+	timeTicker := time.NewTicker(time.Millisecond)
+	defer timeTicker.Stop()
+	i := 0
 	for iptmp := ip.Mask(ipNet.Mask); ipNet.Contains(iptmp); inc(iptmp) {
 		ip4 := iptmp.To4()
 		if ip4 != nil {
@@ -74,16 +80,16 @@ func Scan(ipRange string) {
 				log.Println(err, packet)
 			}
 		}
-		time.Sleep(time.Millisecond)
+		i++
+		if (i % speed) == 0 {
+			<-timeTicker.C
+		}
 	}
 
 	fmt.Println("End scan")
 }
 
-var checkMutex sync.Mutex
-
 func CheckServer(URL string, ip net.IP, timeout uint) {
-	//fmt.Println(ip, "found")
 	u, err := url.Parse(URL)
 	if err != nil {
 		log.Println(err, URL)
@@ -105,19 +111,16 @@ func CheckServer(URL string, ip net.IP, timeout uint) {
 	addr := net.TCPAddr{IP: ip, Port: 443}
 	conf := &tls.Config{
 		ServerName: u.Host,
-		//InsecureSkipVerify: true,
 	}
 	if timeout != 0 {
 		d := net.Dialer{Timeout: time.Millisecond * time.Duration(timeout)}
-		//checkMutex.Lock()
-		//defer checkMutex.Unlock()
 		conn, err = tls.DialWithDialer(&d, "tcp", addr.String(), conf)
 	} else {
 		conn, err = tls.Dial("tcp", addr.String(), conf)
 	}
 
 	if err != nil {
-		//log.Println(err, ip)
+		logPrintln(2, err, ip)
 		return
 	}
 	defer conn.Close()
@@ -126,21 +129,30 @@ func CheckServer(URL string, ip net.IP, timeout uint) {
 		u.Path = "/"
 	}
 
-	request := fmt.Sprintf("HEAD %s HTTP/1.1\r\nHost: %s\r\n\r\n", u.Path, u.Host)
+	request := fmt.Sprintf("HEAD %s HTTP/1.1\r\nHost: %s\r\n", u.Path, u.Host)
+	request += "Accept: */*\r\n"
+	request += "Accept-Encoding: gzip, deflate, br\r\n"
+	request += "Accept-Language: en;q=0.9;q=0.8;q=0.7\r\n"
+	//request += "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1\r\n"
+	request += "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36\r\n"
+	request += "\r\n"
+
 	_, err = conn.Write([]byte(request))
 	if err != nil {
-		//log.Println(err, ip)
+		logPrintln(2, err, ip)
 		return
 	}
 
 	var reponse [2048]byte
 	n, err := conn.Read(reponse[:])
 	if err != nil {
-		//log.Println(err, ip)
+		logPrintln(2, err, ip)
 		return
 	}
 
 	if strings.HasPrefix(string(reponse[:n]), "HTTP/1.1 200 ") {
 		fmt.Printf(ip.String() + ",")
+	} else {
+		logPrintln(3, string(reponse[:n]))
 	}
 }
