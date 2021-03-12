@@ -70,20 +70,24 @@ func TCPRecv(srcPort int, forward bool) {
 		layer = 0
 	}
 
+	count := 0
 	if TFOEnable {
 		filter += "tcp.Syn"
+		count++
 	}
 	if RSTFilterEnable {
-		if TFOEnable {
+		if count > 0 {
 			filter += " or "
 		}
 		filter += "tcp.Rst"
+		count++
 	}
 	if DetectEnable {
-		if RSTFilterEnable {
+		if count > 0 {
 			filter += " or "
 		}
 		filter += "tcp.DstPort==1"
+		count++
 	}
 	filter += ")"
 

@@ -56,7 +56,7 @@ func StartService() {
 		tcpioneer.TCPDaemon(":443", true)
 		tcpioneer.TCPDaemon(":80", true)
 		tcpioneer.UDPDaemon(443, true)
-		tcpioneer.TCPRecv(443, false)
+		tcpioneer.TCPRecv(443, true)
 	}
 
 	if tcpioneer.DNS == "" {
