@@ -620,6 +620,41 @@ func LoadConfig() error {
 	return nil
 }
 
+func LoadHosts(name string) error {
+	hosts, err := os.Open(name)
+	if err != nil {
+		return err
+	}
+	defer hosts.Close()
+
+	br := bufio.NewReader(hosts)
+
+	for {
+		line, _, err := br.ReadLine()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			logPrintln(1, err)
+		}
+
+		if len(line) == 0 || line[0] == '#' {
+			continue
+		}
+
+		keys := strings.Fields(string(line))
+		if len(keys) == 2 {
+			ip := keys[0]
+			config, ok := DomainMap[keys[0]]
+			if ok {
+				IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
+			}
+		}
+	}
+
+	return nil
+}
+
 func Wait() {
 	wg.Wait()
 }

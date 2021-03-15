@@ -43,6 +43,13 @@ func StartService() {
 		return
 	}
 
+	Windir := os.Getenv("WINDIR")
+	err = tcpioneer.LoadHosts(Windir + "\\System32\\drivers\\etc\\hosts")
+	if err != nil && !ServiceMode {
+		log.Println(err)
+		return
+	}
+
 	if tcpioneer.LogLevel == 0 && !ServiceMode {
 		tcpioneer.LogLevel = 1
 	}
