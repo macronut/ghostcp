@@ -431,6 +431,9 @@ func LoadConfig() error {
 					} else if keys[0] == "dns64" {
 						DNS64 = keys[1]
 						logPrintln(2, string(line))
+					} else if keys[0] == "ecs" {
+						ECS = keys[1]
+						logPrintln(2, string(line))
 					} else if keys[0] == "ipv6" {
 						if keys[1] == "true" {
 							ipv6Enable = true

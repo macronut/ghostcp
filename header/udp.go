@@ -164,15 +164,21 @@ func DNSDaemon() {
 							ipheadlen = 20
 						}
 
+						request := packet.Raw[ipheadlen+udpheadlen:]
+
+						if ECS != "" {
+							request = AddECS(request, ECS)
+						}
+
 						var response []byte
 						var err error
 						if qtype != 28 || answers6 == nil {
-							response, err = TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS)
+							response, err = TCPlookup(request, DNS)
 						} else {
 							if DNS64 == "" {
-								response, err = TCPlookupDNS64(packet.Raw[ipheadlen+udpheadlen:], DNS, offset, answers6)
+								response, err = TCPlookupDNS64(request, DNS, offset, answers6)
 							} else {
-								response, err = TCPlookup(packet.Raw[ipheadlen+udpheadlen:], DNS64)
+								response, err = TCPlookup(request, DNS64)
 								//response, err = TCPlookupDNS64(packet.Raw[ipheadlen+udpheadlen:], DNS64, offset, answers6)
 							}
 						}
