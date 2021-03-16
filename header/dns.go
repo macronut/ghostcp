@@ -9,7 +9,6 @@ import (
 
 var DNS string = ""
 var DNS64 string = ""
-var ECS string = ""
 
 func TCPlookup(request []byte, address string) ([]byte, error) {
 	server, err := net.DialTimeout("tcp", address, time.Second*5)
@@ -277,7 +276,7 @@ func packAnswers(ips []string, qtype int) (int, []byte) {
 	return count, answers
 }
 
-func AddECS(request []byte, ecs string) []byte {
+func AddECS(request []byte, ecs net.IP) []byte {
 	if binary.BigEndian.Uint16(request[10:12]) > 0 {
 		return request
 	}
@@ -299,8 +298,7 @@ func AddECS(request []byte, ecs string) []byte {
 	binary.BigEndian.PutUint16(request_ecs[length:], 0x800) // Z
 	length += 2
 
-	ecsip := net.ParseIP(ecs)
-	ecsip4 := ecsip.To4()
+	ecsip4 := ecs.To4()
 	if ecsip4 != nil {
 		binary.BigEndian.PutUint16(request_ecs[length:], 11) // Length
 		length += 2
@@ -329,7 +327,7 @@ func AddECS(request []byte, ecs string) []byte {
 		length++
 		request_ecs[length] = 0 // Scope Netmask
 		length++
-		copy(request_ecs[length:], ecsip[:7])
+		copy(request_ecs[length:], ecs[:7])
 		length += 7
 	}
 

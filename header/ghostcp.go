@@ -19,6 +19,7 @@ type Config struct {
 	TTL      byte
 	MAXTTL   byte
 	MSS      uint16
+	ECS      net.IP
 	ANCount4 int16
 	ANCount6 int16
 	Answers4 []byte
@@ -113,7 +114,7 @@ func domainLookup(qname string) (Config, bool) {
 	}
 
 	if SubdomainDepth == 0 {
-		return Config{0, 0, 0, 0, 0, 0, nil, nil}, true
+		return Config{0, 0, 0, 0, nil, 0, 0, nil, nil}, true
 	}
 
 	offset := 0
@@ -130,7 +131,7 @@ func domainLookup(qname string) (Config, bool) {
 		offset++
 	}
 
-	return Config{0, 0, 0, 0, 0, 0, nil, nil}, false
+	return Config{0, 0, 0, 0, nil, 0, 0, nil, nil}, false
 }
 
 func IPLookup(addr string) (IPConfig, bool) {
@@ -398,6 +399,7 @@ func LoadConfig() error {
 	var syncMSS uint16 = 0
 	ipv6Enable := true
 	ipv4Enable := true
+	var ecs net.IP = nil
 
 	for {
 		line, _, err := br.ReadLine()
@@ -432,7 +434,7 @@ func LoadConfig() error {
 						DNS64 = keys[1]
 						logPrintln(2, string(line))
 					} else if keys[0] == "ecs" {
-						ECS = keys[1]
+						ecs = net.ParseIP(keys[1])
 						logPrintln(2, string(line))
 					} else if keys[0] == "ipv6" {
 						if keys[1] == "true" {
@@ -510,7 +512,7 @@ func LoadConfig() error {
 							if strings.HasSuffix(keys[1], "::") {
 								prefix := net.ParseIP(keys[1])
 								if prefix != nil {
-									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, 0, -1, nil, prefix}
+									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, ecs, 0, -1, nil, prefix}
 								}
 							} else {
 								if strings.HasPrefix(keys[1], "[") {
@@ -543,7 +545,7 @@ func LoadConfig() error {
 									}
 
 									DomainMap[keys[0]] = Config{option,
-										minTTL, maxTTL, syncMSS,
+										minTTL, maxTTL, syncMSS, ecs,
 										int16(count4), int16(count6),
 										answer4, answer6}
 								}
@@ -603,7 +605,9 @@ func LoadConfig() error {
 								if ip != nil {
 									IPMap[keys[0]] = IPConfig{option, minTTL, maxTTL, syncMSS}
 								} else {
-									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, count4, count6, nil, nil}
+									DomainMap[keys[0]] = Config{
+										option, minTTL, maxTTL, syncMSS, ecs,
+										count4, count6, nil, nil}
 								}
 							}
 						}

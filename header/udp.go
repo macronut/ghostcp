@@ -166,8 +166,8 @@ func DNSDaemon() {
 
 						request := packet.Raw[ipheadlen+udpheadlen:]
 
-						if ECS != "" {
-							request = AddECS(request, ECS)
+						if config.ECS != nil {
+							request = AddECS(request, config.ECS)
 						}
 
 						var response []byte
