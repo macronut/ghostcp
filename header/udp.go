@@ -207,6 +207,7 @@ func DNSDaemon() {
 							}
 							count, ans := packAnswers(ips, qtype)
 							binary.BigEndian.PutUint16(response[6:8], uint16(count))
+							binary.BigEndian.PutUint16(response[10:12], 0)
 							copy(response[off:], ans)
 							response = response[:off+len(ans)]
 						}

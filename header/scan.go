@@ -43,7 +43,7 @@ func Scan(ipRange string, speed int) {
 		byte(64), 6, 0, 0,
 		0, 0, 0, 0,
 		0, 0, 0, 0,
-		0, 1, 0, 0,
+		0, 0, 0, 0,
 		0, 0, 0, 0,
 		0, 0, 0, 0,
 		0x80, TCP_SYN, 0xFA, 0xF0,
@@ -57,6 +57,7 @@ func Scan(ipRange string, speed int) {
 	srcIP := getMyIPv4()
 	copy(packet.Raw[12:], srcIP)
 
+	binary.BigEndian.PutUint16(packet.Raw[20:], uint16(2))
 	binary.BigEndian.PutUint16(packet.Raw[22:], uint16(443))
 
 	fmt.Println("Start scanning", ipRange, "from", srcIP)

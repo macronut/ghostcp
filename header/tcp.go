@@ -86,7 +86,7 @@ func TCPRecv(srcPort int, forward bool) {
 		if count > 0 {
 			filter += " or "
 		}
-		filter += "tcp.DstPort==1"
+		filter += "tcp.DstPort < 5"
 		count++
 	}
 	filter += ")"
@@ -163,6 +163,8 @@ func TCPRecv(srcPort int, forward bool) {
 					}
 				} else {
 					if dstPort == 1 {
+						BadIPMap[packet.SrcIP().String()] = true
+					} else if dstPort == 2 {
 						goodIP := packet.SrcIP()
 						_, ok := IPMap[goodIP.String()]
 						if ok {
