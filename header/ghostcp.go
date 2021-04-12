@@ -33,6 +33,7 @@ type IPConfig struct {
 	MSS    uint16
 }
 
+var DefaultConfig *Config = nil
 var DomainMap map[string]Config
 var IPMap map[string]IPConfig
 var BadIPMap map[string]bool
@@ -131,7 +132,11 @@ func domainLookup(qname string) (Config, bool) {
 		offset++
 	}
 
-	return Config{0, 0, 0, 0, nil, 0, 0, nil, nil}, false
+	if DefaultConfig != nil {
+		return *DefaultConfig, true
+	} else {
+		return Config{0, 0, 0, 0, nil, -1, -1, nil, nil}, false
+	}
 }
 
 func IPLookup(addr string) (IPConfig, bool) {
@@ -587,27 +592,27 @@ func LoadConfig() error {
 									IPBlock = true
 								}
 							} else {
-								var count4 int16
-								var count6 int16
-								if ipv4Enable {
-									count4 = -1
-								} else {
-									count4 = 0
-								}
-								if ipv6Enable {
-									count6 = -1
-								} else {
-									count6 = 0
-								}
-
 								ip := net.ParseIP(keys[0])
-
 								if ip != nil {
 									IPMap[keys[0]] = IPConfig{option, minTTL, maxTTL, syncMSS}
 								} else {
-									DomainMap[keys[0]] = Config{
-										option, minTTL, maxTTL, syncMSS, ecs,
-										count4, count6, nil, nil}
+									var count4 int16 = 0
+									var count6 int16 = 0
+									if ipv4Enable {
+										count4 = -1
+									}
+									if ipv6Enable {
+										count6 = -1
+									}
+									if keys[0] == "*" {
+										DefaultConfig = &Config{
+											option, minTTL, maxTTL, syncMSS, ecs,
+											count4, count6, nil, nil}
+									} else {
+										DomainMap[keys[0]] = Config{
+											option, minTTL, maxTTL, syncMSS, ecs,
+											count4, count6, nil, nil}
+									}
 								}
 							}
 						}
