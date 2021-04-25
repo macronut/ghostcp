@@ -25,6 +25,8 @@ run install.bat to install the service
   w-csum            #the fake tcp packets will have a wrong checksum
   w-ack             #the fake tcp packets will have a wrong ACK number
   tfo               #SYN packet will take a part of data when the server supports TCP Fast Open
+  
+  df                #the true tcp packets will not be fragmented
   https             #the domain below will be move to https when using http on port 80
 ```
 ## How to get the TTL
