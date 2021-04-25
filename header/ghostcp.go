@@ -68,12 +68,13 @@ const (
 	OPT_WULEN = 0x1 << 11
 
 	OPT_MODE2  = 0x10000 << 0
-	OPT_TFO    = 0x10000 << 1
-	OPT_SYN    = 0x10000 << 2
-	OPT_NOFLAG = 0x10000 << 3
-	OPT_SSEG   = 0x10000 << 4
-	OPT_QUIC   = 0x10000 << 5
-	OPT_FILTER = 0x10000 << 6
+	OPT_DF     = 0x10000 << 1
+	OPT_TFO    = 0x10000 << 2
+	OPT_SYN    = 0x10000 << 3
+	OPT_NOFLAG = 0x10000 << 4
+	OPT_SSEG   = 0x10000 << 5
+	OPT_QUIC   = 0x10000 << 6
+	OPT_FILTER = 0x10000 << 7
 )
 
 var MethodMap = map[string]uint32{
@@ -92,6 +93,7 @@ var MethodMap = map[string]uint32{
 	"w-ulen": OPT_WULEN,
 
 	"mode2":   OPT_MODE2,
+	"df":      OPT_DF,
 	"tfo":     OPT_TFO,
 	"syn":     OPT_SYN,
 	"no-flag": OPT_NOFLAG,

@@ -724,6 +724,16 @@ func TCPDaemon(address string, forward bool) {
 				count := 1
 				if (info.Option & 0xFFFF) != 0 {
 					if info.Option&OPT_MODE2 == 0 {
+						if info.Option&OPT_DF != 0 {
+							host_length, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 2)
+							_, err = winDivert.Send(packet)
+							if err != nil {
+								if LogLevel > 0 {
+									log.Println(err)
+								}
+							}
+							continue
+						}
 						host_length, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, count)
 						if err != nil {
 							if LogLevel > 0 {
