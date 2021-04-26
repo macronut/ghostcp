@@ -40,7 +40,7 @@ var BadIPMap map[string]bool
 var wg sync.WaitGroup
 var mutex sync.Mutex
 
-var SubdomainDepth = 2
+var SubdomainDepth = 4
 var LogLevel = 0
 var Forward bool = false
 var IPBlock = false
