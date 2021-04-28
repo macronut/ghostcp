@@ -10,10 +10,11 @@ run install.bat to install the service
 
 ## How to configure
 ```
-  server=IP:Port    #Domain in config will use this DNS(DNSoverTCP),if not set it will use the DNS of system
-  ipv6=true/false   #Domain below will enable/disable IPv6 
+  server=IP:Port    #domain in config will use this DNS(DNSoverTCP),if not set it will use the DNS of system
+  ipv6=true/false   #domain below will enable/disable IPv6
+  subdomain=*       #set the depth of domain search, default 2
   ttl=*             #the fake tcp packet will use this TTL
-  domain=ip,ip,...  #this domain will use these IPs
+  domain=ip,ip,...  #this domain will use these IPs
   domain            #this domain will be resolved by DNS
   ip:port           #this ip:port will send fake packet when creating connection
   method=*          #the methods to modify TCP
