@@ -674,10 +674,15 @@ func TCPDaemon(address string, forward bool) {
 							}
 						}
 					} else {
-						if ipv6 {
-							PortList6[srcPort] = nil
+						if info.Option&OPT_SAT != 0 && payloadLen > 0 {
+							host_offset = 0
+							host_length = payloadLen
 						} else {
-							PortList4[srcPort] = nil
+							if ipv6 {
+								PortList6[srcPort] = nil
+							} else {
+								PortList4[srcPort] = nil
+							}
 						}
 					}
 				default:

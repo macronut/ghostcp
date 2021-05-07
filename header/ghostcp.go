@@ -75,6 +75,7 @@ const (
 	OPT_SSEG   = 0x10000 << 5
 	OPT_QUIC   = 0x10000 << 6
 	OPT_FILTER = 0x10000 << 7
+	OPT_SAT    = 0x10000 << 8
 )
 
 var MethodMap = map[string]uint32{
@@ -100,6 +101,7 @@ var MethodMap = map[string]uint32{
 	"s-seg":   OPT_SSEG,
 	"quic":    OPT_QUIC,
 	"filter":  OPT_FILTER,
+	"sat":     OPT_SAT,
 }
 
 var Logger *log.Logger
