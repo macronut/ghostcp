@@ -45,7 +45,7 @@ var LogLevel = 0
 var Forward bool = false
 var IPBlock = false
 var IPMode = false
-var TFOEnable = false
+var SYNEnable = false
 var RSTFilterEnable = false
 var DetectEnable = false
 
@@ -439,9 +439,6 @@ func LoadConfig() error {
 						DNS = tcpAddr.String()
 						IPMap[tcpAddr.IP.String()] = IPConfig{option, minTTL, maxTTL, syncMSS}
 						logPrintln(2, string(line))
-					} else if keys[0] == "dns64" {
-						DNS64 = keys[1]
-						logPrintln(2, string(line))
 					} else if keys[0] == "ecs" {
 						ecs = net.ParseIP(keys[1])
 						logPrintln(2, string(line))
@@ -468,7 +465,9 @@ func LoadConfig() error {
 								option |= method
 								switch method {
 								case OPT_TFO:
-									TFOEnable = true
+									SYNEnable = true
+								case OPT_SYN:
+									SYNEnable = true
 								case OPT_FILTER:
 									DetectEnable = true
 								}
@@ -518,7 +517,7 @@ func LoadConfig() error {
 					} else {
 						ip := net.ParseIP(keys[0])
 						if ip == nil {
-							if strings.HasSuffix(keys[1], "::") {
+							if strings.HasSuffix(keys[1], ":") {
 								prefix := net.ParseIP(keys[1])
 								if prefix != nil {
 									DomainMap[keys[0]] = Config{option, minTTL, maxTTL, syncMSS, ecs, 0, -1, nil, prefix}
@@ -626,7 +625,7 @@ func LoadConfig() error {
 		}
 	}
 
-	if TFOEnable {
+	if SYNEnable {
 		CookiesMap = make(map[string][]byte)
 	}
 

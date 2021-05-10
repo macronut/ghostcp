@@ -172,16 +172,12 @@ func DNSDaemon() {
 
 						var response []byte
 						var err error
-						if qtype != 28 || answers6 == nil {
-							response, err = TCPlookup(request, DNS)
+						if qtype == 28 && answers6 != nil {
+							response, err = TCPlookupDNS64(request, DNS, offset, answers6)
 						} else {
-							if DNS64 == "" {
-								response, err = TCPlookupDNS64(request, DNS, offset, answers6)
-							} else {
-								response, err = TCPlookup(request, DNS64)
-								//response, err = TCPlookupDNS64(packet.Raw[ipheadlen+udpheadlen:], DNS64, offset, answers6)
-							}
+							response, err = TCPlookup(request, DNS)
 						}
+
 						if err != nil {
 							if LogLevel > 0 {
 								log.Println(err)

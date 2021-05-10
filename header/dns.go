@@ -8,7 +8,6 @@ import (
 )
 
 var DNS string = ""
-var DNS64 string = ""
 
 func TCPlookup(request []byte, address string) ([]byte, error) {
 	server, err := net.DialTimeout("tcp", address, time.Second*5)
@@ -129,6 +128,11 @@ func TCPlookupDNS64(request []byte, address string, offset int, prefix []byte) (
 			offset4 = offset
 		}
 	}
+
+	binary.BigEndian.PutUint16(response6[8:10], 0)
+	binary.BigEndian.PutUint16(response6[10:12], 0)
+	//copy(response6[offset6:], response[offset4:])
+	//offset6 += len(response) - offset4
 
 	return response6[:offset6], nil
 }
