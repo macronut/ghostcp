@@ -56,7 +56,7 @@ func getCookies(option []byte) []byte {
 }
 
 func TCPRecv(srcPort int, forward bool) {
-	if (SYNEnable || RSTFilterEnable || DetectEnable) == false {
+	if (TFOEnable || RSTFilterEnable || DetectEnable) == false {
 		return
 	}
 
@@ -71,7 +71,7 @@ func TCPRecv(srcPort int, forward bool) {
 	}
 
 	count := 0
-	if SYNEnable {
+	if TFOEnable {
 		filter += "tcp.Syn"
 		count++
 	}
@@ -161,30 +161,6 @@ func TCPRecv(srcPort int, forward bool) {
 						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
 						packet.CalcNewChecksum(winDivert)
 					}
-				} else if info != nil && info.Option&OPT_SYN != 0 {
-					syn_packet := *packet
-					syn_packet.Raw = make([]byte, packet.PacketLen)
-					copy(syn_packet.Raw, packet.Raw)
-					srcIP := packet.SrcIP()
-					dstIP := packet.DstIP()
-					srcPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen:])
-					ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
-
-					syn_packet.SetSrcIP(dstIP)
-					syn_packet.SetDstIP(srcIP)
-					syn_packet.SetSrcPort(dstPort)
-					syn_packet.SetDstPort(srcPort)
-
-					binary.BigEndian.PutUint32(syn_packet.Raw[ipheadlen+4:], ackNum-1280)
-					binary.BigEndian.PutUint32(syn_packet.Raw[ipheadlen+8:], 0)
-					syn_packet.Raw[ipheadlen+13] = TCP_SYN
-					syn_packet.Addr.Data = 1 << 4
-
-					syn_packet.CalcNewChecksum(winDivert)
-					_, err := winDivert.Send(&syn_packet)
-					if err != nil {
-						log.Println(err)
-					}
 				} else {
 					if dstPort == 1 {
 						BadIPMap[packet.SrcIP().String()] = true
@@ -227,8 +203,19 @@ func TCPRecv(srcPort int, forward bool) {
 					if dstPort == 1 {
 						BadIPMap[packet.SrcIP().String()] = true
 					}
+					continue
 				}
-				continue
+
+				var info *ConnInfo
+				if ipv6 {
+					info = PortList6[dstPort]
+				} else {
+					info = PortList4[dstPort]
+				}
+
+				if info != nil && info.Option&OPT_NORST != 0 {
+					continue
+				}
 			}
 
 			_, err = winDivert.Send(packet)
@@ -371,7 +358,7 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 
 	if info.Option&OPT_SEQ != 0 {
 		seqNum := binary.BigEndian.Uint32(rawbuf[ipheadlen+4:])
-		seqNum -= uint32(int(packet.PacketLen) - ipheadlen - tcpheadlen)
+		seqNum -= 32767
 		binary.BigEndian.PutUint32(rawbuf[ipheadlen+4:], seqNum)
 		fake_packet.Raw = rawbuf[:len(packet.Raw)]
 
@@ -554,6 +541,64 @@ func TCPDaemon(address string, forward bool) {
 				dstPort := int(binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:]))
 
 				payloadLen := int(packet.PacketLen) - ipheadlen - tcpheadlen
+
+				if payloadLen == 0 {
+					if info.Option&OPT_SYN != 0 {
+						_, err := winDivert.Send(packet)
+
+						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
+						ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
+						if seqNum != info.SeqNum+1 {
+							continue
+						}
+						/*
+							if ipv6 {
+								packet.Raw[7] = byte(info.TTL)
+							} else {
+								packet.Raw[8] = byte(info.TTL)
+							}
+						*/
+						var offset uint32 = 32768
+
+						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], info.SeqNum-offset)
+						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], 0)
+						packet.Raw[ipheadlen+13] = TCP_SYN
+						packet.CalcNewChecksum(winDivert)
+						_, err = winDivert.Send(packet)
+						if err != nil {
+							log.Println(err)
+						}
+
+						seqNum -= offset
+						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], seqNum)
+						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
+						packet.Raw[ipheadlen+13] = TCP_ACK
+						packet.CalcNewChecksum(winDivert)
+						_, err = winDivert.Send(packet)
+						if err != nil {
+							log.Println(err)
+						}
+
+						copy(rawbuf, packet.Raw)
+						packet.PacketLen += 16
+						if ipv6 {
+							binary.BigEndian.PutUint16(rawbuf[4:], uint16(int(packet.PacketLen)-ipheadlen))
+						} else {
+							binary.BigEndian.PutUint16(rawbuf[2:], uint16(packet.PacketLen))
+						}
+						rawbuf[ipheadlen+13] = TCP_PSH | TCP_ACK
+						packet.Raw = rawbuf[:packet.PacketLen]
+						packet.CalcNewChecksum(winDivert)
+						_, err = winDivert.Send(packet)
+						if err != nil {
+							log.Println(err)
+						}
+						continue
+					}
+
+					_, err = winDivert.Send(packet)
+					continue
+				}
 
 				host_offset := 0
 				host_length := 0
@@ -752,6 +797,11 @@ func TCPDaemon(address string, forward bool) {
 					} else {
 						count = 2
 					}
+				}
+
+				if info.Option&OPT_DF != 0 {
+					winDivert.Send(packet)
+					continue
 				}
 
 				if info.Option&OPT_MD5 != 0 {
@@ -963,7 +1013,12 @@ func TCPDaemon(address string, forward bool) {
 
 						packet.CalcNewChecksum(winDivert)
 					}
-
+					/*
+						if config.Option&OPT_SYN != 0 {
+							binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], seqNum-32767)
+							packet.CalcNewChecksum(winDivert)
+						}
+					*/
 					if (config.Option & OPT_MSS) != 0 {
 						if tcpheadlen >= 24 {
 							tcpOption := packet.Raw[ipheadlen+20]

@@ -45,7 +45,7 @@ var LogLevel = 0
 var Forward bool = false
 var IPBlock = false
 var IPMode = false
-var SYNEnable = false
+var TFOEnable = false
 var RSTFilterEnable = false
 var DetectEnable = false
 
@@ -76,6 +76,7 @@ const (
 	OPT_QUIC   = 0x10000 << 6
 	OPT_FILTER = 0x10000 << 7
 	OPT_SAT    = 0x10000 << 8
+	OPT_NORST  = 0x10000 << 9
 )
 
 var MethodMap = map[string]uint32{
@@ -102,6 +103,7 @@ var MethodMap = map[string]uint32{
 	"quic":    OPT_QUIC,
 	"filter":  OPT_FILTER,
 	"sat":     OPT_SAT,
+	"no-rst":  OPT_NORST,
 }
 
 var Logger *log.Logger
@@ -465,11 +467,11 @@ func LoadConfig() error {
 								option |= method
 								switch method {
 								case OPT_TFO:
-									SYNEnable = true
-								case OPT_SYN:
-									SYNEnable = true
+									TFOEnable = true
 								case OPT_FILTER:
 									DetectEnable = true
+								case OPT_NORST:
+									RSTFilterEnable = true
 								}
 							} else {
 								logPrintln(1, "Unsupported method: "+m)
@@ -625,7 +627,7 @@ func LoadConfig() error {
 		}
 	}
 
-	if SYNEnable {
+	if TFOEnable {
 		CookiesMap = make(map[string][]byte)
 	}
 
