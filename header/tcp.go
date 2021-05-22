@@ -138,14 +138,43 @@ func TCPRecv(srcPort int, forward bool) {
 			dstPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:])
 
 			if packet.Raw[ipheadlen+13] == TCP_SYN|TCP_ACK {
-				var info *ConnInfo
-				if ipv6 {
-					info = PortList6[dstPort]
-				} else {
-					info = PortList4[dstPort]
-				}
+				switch dstPort {
+				case 1:
+					BadIPMap[packet.SrcIP().String()] = true
+					continue
+				case 2:
+					goodIP := packet.SrcIP()
+					_, ok := IPMap[goodIP.String()]
+					if ok {
+						continue
+					}
 
-				if info != nil && info.Option&OPT_TFO != 0 {
+					myIP := packet.DstIP()
+					packet.SetSrcIP(myIP)
+					packet.SetDstIP(goodIP)
+					srcPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen:])
+					packet.SetSrcPort(dstPort)
+					packet.SetDstPort(srcPort)
+					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
+					ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
+					binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], ackNum)
+					binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], seqNum+1)
+					packet.Raw[ipheadlen+13] = TCP_RST | TCP_ACK
+					packet.Addr.Data = 1 << 4
+
+					packet.CalcNewChecksum(winDivert)
+					_, err := winDivert.Send(packet)
+					if err != nil {
+						log.Println(err)
+					}
+
+					if ScanURL == "" {
+						fmt.Println(goodIP, "found")
+					} else {
+						go CheckServer(ScanURL, goodIP, ScanTimeout)
+					}
+					continue
+				case 3:
 					tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
 					optStart := ipheadlen + 20
 					option := packet.Raw[optStart : ipheadlen+tcpheadlen]
@@ -154,56 +183,31 @@ func TCPRecv(srcPort int, forward bool) {
 						tmp_cookies := make([]byte, len(cookies))
 						copy(tmp_cookies, cookies)
 						CookiesMap[packet.SrcIP().String()] = tmp_cookies
-						continue
+					}
+					continue
+				default:
+					var info *ConnInfo
+					if ipv6 {
+						info = PortList6[dstPort]
 					} else {
+						info = PortList4[dstPort]
+					}
+
+					if info != nil && info.Option&OPT_TFO != 0 {
 						ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
 						ackNum = info.SeqNum + 1
 						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
 						packet.CalcNewChecksum(winDivert)
 					}
-				} else {
-					if dstPort == 1 {
-						BadIPMap[packet.SrcIP().String()] = true
-					} else if dstPort == 2 {
-						goodIP := packet.SrcIP()
-						_, ok := IPMap[goodIP.String()]
-						if ok {
-							continue
-						}
-
-						myIP := packet.DstIP()
-						packet.SetSrcIP(myIP)
-						packet.SetDstIP(goodIP)
-						srcPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen:])
-						packet.SetSrcPort(dstPort)
-						packet.SetDstPort(srcPort)
-						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
-						ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
-						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+4:], ackNum)
-						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], seqNum+1)
-						packet.Raw[ipheadlen+13] = TCP_RST | TCP_ACK
-						packet.Addr.Data = 1 << 4
-
-						packet.CalcNewChecksum(winDivert)
-						_, err := winDivert.Send(packet)
-						if err != nil {
-							log.Println(err)
-						}
-
-						if ScanURL == "" {
-							fmt.Println(goodIP, "found")
-						} else {
-							go CheckServer(ScanURL, goodIP, ScanTimeout)
-						}
-					}
 				}
+
 			} else if packet.Raw[ipheadlen+13]|TCP_RST != 0 {
 				if DetectEnable {
 					dstPort, _ := packet.DstPort()
 					if dstPort == 1 {
 						BadIPMap[packet.SrcIP().String()] = true
+						continue
 					}
-					continue
 				}
 
 				var info *ConnInfo
@@ -977,6 +981,7 @@ func TCPDaemon(address string, forward bool) {
 								rawbuf[packet.PacketLen+2] = 0x01
 								packet.PacketLen += 3
 							} else {
+								binary.BigEndian.PutUint16(rawbuf[ipheadlen:], 3)
 								packet.PacketLen += 4
 								rawbuf[ipheadlen+12] += 1 << 4
 								rawbuf[ipheadlen+tcpheadlen] = 34
