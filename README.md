@@ -1,5 +1,7 @@
 # TCPioneer
 TCPioneer is a program for Windows that protects the TCP connections from being interfered.  
+
+THIS SPECIAL VERSION IS FOR **Hmoegirl** and **WIKIPEDIA**.
   
 for other platforms:**[phantomsocks](https://github.com/Macronut/phantomsocks)**
 
