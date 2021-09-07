@@ -35,6 +35,13 @@ const (
 	TCP_CWR = byte(0x80)
 )
 
+const (
+	TCP_NONE = iota
+	TCP_DNS
+	TCP_HTTP
+	TCP_TLS
+)
+
 func getCookies(option []byte) []byte {
 	optOff := 0
 	for {
@@ -604,10 +611,23 @@ func TCPDaemon(address string, forward bool) {
 					continue
 				}
 
+				appLayer := TCP_NONE
+
 				host_offset := 0
 				host_length := 0
 				switch dstPort {
 				case 53:
+					appLayer = TCP_DNS
+				case 80:
+					appLayer = TCP_HTTP
+				case 443:
+					appLayer = TCP_TLS
+				default:
+					appLayer = TCP_NONE
+				}
+
+				switch appLayer {
+				case TCP_DNS:
 					if payloadLen > 0 {
 						if len(packet.Raw[ipheadlen+tcpheadlen:]) > 21 {
 							host_offset = 14
@@ -619,7 +639,7 @@ func TCPDaemon(address string, forward bool) {
 							PortList4[srcPort] = nil
 						}
 					}
-				case 80:
+				case TCP_HTTP:
 					request := packet.Raw[ipheadlen+tcpheadlen:]
 
 					if info.Option&OPT_HTTPS != 0 {
@@ -707,7 +727,7 @@ func TCPDaemon(address string, forward bool) {
 					} else if payloadLen > 0 {
 						host_offset, host_length = getHost(request)
 					}
-				case 443:
+				case TCP_TLS:
 					seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 					if seqNum == info.SeqNum+1 {
 						if info.Option&OPT_TFO != 0 {
@@ -751,7 +771,7 @@ func TCPDaemon(address string, forward bool) {
 					continue
 				}
 
-				if (info.Option & OPT_SSEG) != 0 {
+				if (info.Option&OPT_SSEG) != 0 && payloadLen > 4 {
 					copy(tmp_rawbuf, packet.Raw[:ipheadlen+tcpheadlen+4])
 					if ipv6 {
 						binary.BigEndian.PutUint16(tmp_rawbuf[4:], uint16(tcpheadlen+4))
@@ -829,7 +849,7 @@ func TCPDaemon(address string, forward bool) {
 
 				seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4 : ipheadlen+8])
 				prefix_packet := *packet
-				if (info.Option & OPT_SSEG) != 0 {
+				if (info.Option&OPT_SSEG) != 0 && payloadLen > 4 {
 					copy(tmp_rawbuf[ipheadlen+tcpheadlen:], packet.Raw[ipheadlen+tcpheadlen+4:total_cut_offset])
 					totallen := uint16(total_cut_offset - 4)
 					binary.BigEndian.PutUint32(tmp_rawbuf[ipheadlen+4:], seqNum+4)
