@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"./header"
+	"github.com/Macronut/TCPioneer/header"
 	"github.com/chai2010/winsvc"
 )
 
