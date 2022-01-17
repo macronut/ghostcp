@@ -13,6 +13,7 @@ import (
 	"github.com/chai2010/winsvc"
 )
 
+var Conf string = ""
 var ServiceMode bool = true
 var ScanIPRange string = ""
 var ScanSpeed int = 1
@@ -35,7 +36,7 @@ func StartService() {
 		tcpioneer.Logger = log.New(logFile, "\r\n", log.Ldate|log.Ltime|log.Lshortfile)
 	}
 
-	err := tcpioneer.LoadConfig()
+	err := tcpioneer.LoadConfig(Conf)
 	if err != nil {
 		if tcpioneer.LogLevel > 0 || !ServiceMode {
 			log.Println(err)
@@ -101,7 +102,7 @@ func main() {
 	var flagServiceUninstall bool
 	var flagServiceStart bool
 	var flagServiceStop bool
-
+	flag.StringVar(&Conf, "conf", "default.conf", "Specifying the config")
 	flag.BoolVar(&flagServiceInstall, "install", false, "Install service")
 	flag.BoolVar(&flagServiceUninstall, "remove", false, "Remove service")
 	flag.BoolVar(&flagServiceStart, "start", false, "Start service")
