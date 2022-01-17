@@ -391,7 +391,7 @@ func getMyIPv6() net.IP {
 	return nil
 }
 
- func LoadConfig(configname string) error {
+func LoadConfig(configname string) error {
 	DomainMap = make(map[string]Config)
 	IPMap = make(map[string]IPConfig)
 	BadIPMap = make(map[string]bool)
