@@ -30,7 +30,6 @@ func Scan(ipRange string, speed int) {
 		log.Println(err)
 		return
 	}
-	DetectEnable = true
 
 	var winDivertAddr godivert.WinDivertAddress
 
