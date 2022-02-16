@@ -659,7 +659,7 @@ func LoadHosts(name string) error {
 		keys := strings.Fields(string(line))
 		if len(keys) == 2 {
 			ip := keys[0]
-			config, ok := DomainMap[keys[0]]
+			config, ok := DomainMap[keys[1]]
 			if ok {
 				IPMap[ip] = IPConfig{config.Option, config.TTL, config.MAXTTL, config.MSS}
 			}
