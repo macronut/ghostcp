@@ -7,9 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 
-	"github.com/Macronut/TCPioneer/header"
+	tcpioneer "github.com/Macronut/TCPioneer/header"
 	"github.com/chai2010/winsvc"
 )
 
@@ -80,7 +81,20 @@ func StartService() {
 	}
 
 	if ScanIPRange != "" {
-		go tcpioneer.Scan(ScanIPRange, ScanSpeed)
+		ip_check := regexp.MustCompile(`/(\d+)$`)
+		result := ip_check.MatchString(ScanIPRange)
+		if result {
+			tcpioneer.ScanURL = ScanURL
+			tcpioneer.ScanTimeout = ScanTimeout
+
+			go tcpioneer.Scan(ScanIPRange, ScanSpeed)
+		} else {
+			if ScanURL != "" {
+				go tcpioneer.CheckScanResult(ScanIPRange, ScanURL, ScanTimeout)
+			} else {
+				fmt.Println("ScanURL is empty")
+			}
+		}
 	}
 
 	fmt.Println("Service Start")

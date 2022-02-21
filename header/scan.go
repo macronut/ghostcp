@@ -89,6 +89,13 @@ func Scan(ipRange string, speed int) {
 	fmt.Println("End scan")
 }
 
+func CheckScanResult(fn string, URL string, timeout uint) {
+	ips := ReadResultFile(fn)
+	for _, ip := range ips {
+		CheckServer(URL, ip, timeout)
+	}
+}
+
 func CheckServer(URL string, ip net.IP, timeout uint) {
 	u, err := url.Parse(URL)
 	if err != nil {
