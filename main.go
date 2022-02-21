@@ -19,6 +19,7 @@ var ScanIPRange string = ""
 var ScanSpeed int = 1
 var ScanURL string = ""
 var ScanTimeout uint = 0
+var ScanHeader string = ""
 
 func StartService() {
 	runtime.GOMAXPROCS(1)
@@ -83,6 +84,9 @@ func StartService() {
 	if ScanIPRange != "" {
 		ip_check := regexp.MustCompile(`/(\d+)$`)
 		result := ip_check.MatchString(ScanIPRange)
+		if ScanHeader != "" {
+			tcpioneer.ScanHeaders = tcpioneer.ReadHeaderFile(ScanHeader)
+		}
 		if result {
 			tcpioneer.ScanURL = ScanURL
 			tcpioneer.ScanTimeout = ScanTimeout
@@ -127,6 +131,7 @@ func main() {
 	flag.IntVar(&ScanSpeed, "scanspeed", 1, "Scan Speed")
 	flag.StringVar(&ScanURL, "scanurl", "", "Scan URL")
 	flag.UintVar(&ScanTimeout, "scantimeout", 0, "Scan Timeout")
+	flag.StringVar(&ScanHeader, "scanheader", "", "Scan Header File")
 	flag.Parse()
 
 	appPath, err := winsvc.GetAppPath()

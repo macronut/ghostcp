@@ -51,6 +51,7 @@ var DetectEnable = false
 
 var ScanURL string = ""
 var ScanTimeout uint = 0
+var ScanHeaders []string = []string{}
 
 const (
 	OPT_NONE  = 0x0

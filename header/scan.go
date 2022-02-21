@@ -1,12 +1,14 @@
 package tcpioneer
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -98,7 +100,7 @@ type CheckTask struct {
 }
 
 func (t *CheckTask) Run() {
-	CheckServer(t.URL, t.ip, t.timeout)
+	CheckServer(t.URL, t.ip, t.timeout, ScanHeaders)
 	if t.last {
 		fmt.Println("End checking")
 	}
@@ -130,7 +132,28 @@ func CheckScanResult(fn string, URL string, timeout uint, speed int) {
 	}
 }
 
-func CheckServer(URL string, ip net.IP, timeout uint) {
+func ReadHeaderFile(fn string) []string {
+	f, err := os.Open(fn)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	var headers []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		text := scanner.Text()
+		// Support read CURL verbose Header
+		text = strings.TrimPrefix(text, "> ")
+		headers = append(headers, text)
+	}
+	if err := scanner.Err(); err != nil {
+		log.Fatal(err)
+	}
+	return headers
+}
+
+func CheckServer(URL string, ip net.IP, timeout uint, headers []string) {
 	u, err := url.Parse(URL)
 	if err != nil {
 		log.Println(err, URL)
@@ -170,13 +193,21 @@ func CheckServer(URL string, ip net.IP, timeout uint) {
 		u.Path = "/"
 	}
 
-	request := fmt.Sprintf("HEAD %s HTTP/1.1\r\nHost: %s\r\n", u.Path, u.Host)
-	request += "Accept: */*\r\n"
-	request += "Accept-Encoding: gzip, deflate, br\r\n"
-	request += "Accept-Language: en;q=0.9;q=0.8;q=0.7\r\n"
-	//request += "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1\r\n"
-	request += "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36\r\n"
-	request += "\r\n"
+	var request string
+	if len(headers) == 0 {
+		request = fmt.Sprintf("HEAD %s HTTP/1.1\r\nHost: %s\r\n", u.Path, u.Host)
+		request += "Accept: */*\r\n"
+		request += "Accept-Encoding: gzip, deflate, br\r\n"
+		request += "Accept-Language: en;q=0.9;q=0.8;q=0.7\r\n"
+		//request += "User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1\r\n"
+		request += "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36\r\n"
+		request += "\r\n"
+	} else {
+		request = ""
+		for _, h := range headers {
+			request += h + "\r\n"
+		}
+	}
 
 	_, err = conn.Write([]byte(request))
 	if err != nil {
