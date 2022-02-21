@@ -90,7 +90,7 @@ func StartService() {
 			go tcpioneer.Scan(ScanIPRange, ScanSpeed)
 		} else {
 			if ScanURL != "" {
-				go tcpioneer.CheckScanResult(ScanIPRange, ScanURL, ScanTimeout)
+				go tcpioneer.CheckScanResult(ScanIPRange, ScanURL, ScanTimeout, ScanSpeed)
 			} else {
 				fmt.Println("ScanURL is empty")
 			}

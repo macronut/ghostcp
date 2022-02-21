@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/macronut/godivert"
+	"github.com/shettyh/threadpool"
 )
 
 func inc(ip net.IP) {
@@ -89,10 +90,43 @@ func Scan(ipRange string, speed int) {
 	fmt.Println("End scan")
 }
 
-func CheckScanResult(fn string, URL string, timeout uint) {
+type CheckTask struct {
+	ip      net.IP
+	URL     string
+	timeout uint
+	last    bool
+}
+
+func (t *CheckTask) Run() {
+	CheckServer(t.URL, t.ip, t.timeout)
+	if t.last {
+		fmt.Println("End checking")
+	}
+}
+
+func CheckScanResult(fn string, URL string, timeout uint, speed int) {
 	ips := ReadResultFile(fn)
-	for _, ip := range ips {
-		CheckServer(URL, ip, timeout)
+	pool := threadpool.NewThreadPool(1000*speed, 1000000)
+	ip_count := len(ips)
+	fmt.Println("Start checking", ip_count, "ips")
+	timeTicker := time.NewTicker(time.Millisecond)
+	defer timeTicker.Stop()
+	for i, ip := range ips {
+		last := false
+		if ip_count == i+1 {
+			last = true
+		}
+		task := &CheckTask{ip, URL, timeout, last}
+	exetask:
+		err := pool.Execute(task)
+		if err != nil {
+			// Wait for a while and retry later
+			<-timeTicker.C
+			goto exetask
+		}
+		if (i % speed) == 0 {
+			<-timeTicker.C
+		}
 	}
 }
 
