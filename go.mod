@@ -1,4 +1,4 @@
-module github.com/Macronut/TCPioneer
+module github.com/macronut/ghostcp
 
 go 1.16
 

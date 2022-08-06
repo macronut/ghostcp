@@ -1,4 +1,4 @@
-package tcpioneer
+package ghostcp
 
 import (
 	"encoding/binary"
@@ -74,6 +74,8 @@ func DNSDaemon() {
 					answers = config.Answers6
 					anCount = config.ANCount6
 				}
+
+				packet.Addr.Data = 0x1
 
 				if anCount == 0 {
 					request := packet.Raw[ipheadlen+udpheadlen:]

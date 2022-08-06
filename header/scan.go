@@ -1,4 +1,4 @@
-package tcpioneer
+package ghostcp
 
 import (
 	"crypto/tls"

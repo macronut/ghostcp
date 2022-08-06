@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/Macronut/TCPioneer/header"
 	"github.com/chai2010/winsvc"
+	"github.com/macronut/ghostcp/header"
 )
 
 var ServiceMode bool = true
@@ -23,8 +23,8 @@ func StartService() {
 	runtime.GOMAXPROCS(1)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	if tcpioneer.LogLevel > 0 {
-		var logFilename string = "tcpioneer.log"
+	if ghostcp.LogLevel > 0 {
+		var logFilename string = "ghostcp.log"
 		logFile, err := os.OpenFile(logFilename, os.O_RDWR|os.O_CREATE, 0777)
 		if err != nil {
 			log.Println(err)
@@ -32,59 +32,59 @@ func StartService() {
 		}
 		defer logFile.Close()
 
-		tcpioneer.Logger = log.New(logFile, "\r\n", log.Ldate|log.Ltime|log.Lshortfile)
+		ghostcp.Logger = log.New(logFile, "\r\n", log.Ldate|log.Ltime|log.Lshortfile)
 	}
 
-	err := tcpioneer.LoadConfig()
+	err := ghostcp.LoadConfig()
 	if err != nil {
-		if tcpioneer.LogLevel > 0 || !ServiceMode {
+		if ghostcp.LogLevel > 0 || !ServiceMode {
 			log.Println(err)
 		}
 		return
 	}
 
 	Windir := os.Getenv("WINDIR")
-	err = tcpioneer.LoadHosts(Windir + "\\System32\\drivers\\etc\\hosts")
+	err = ghostcp.LoadHosts(Windir + "\\System32\\drivers\\etc\\hosts")
 	if err != nil && !ServiceMode {
 		log.Println(err)
 		return
 	}
 
-	if tcpioneer.LogLevel == 0 && !ServiceMode {
-		tcpioneer.LogLevel = 1
+	if ghostcp.LogLevel == 0 && !ServiceMode {
+		ghostcp.LogLevel = 1
 	}
 
 	if ScanIPRange != "" {
-		tcpioneer.DetectEnable = true
-		tcpioneer.ScanURL = ScanURL
-		tcpioneer.ScanTimeout = ScanTimeout
+		ghostcp.DetectEnable = true
+		ghostcp.ScanURL = ScanURL
+		ghostcp.ScanTimeout = ScanTimeout
 	}
 
-	tcpioneer.TCPDaemon(":443", false)
-	tcpioneer.TCPDaemon(":80", false)
-	tcpioneer.UDPDaemon(443, false)
-	tcpioneer.TCPRecv(443, false)
+	ghostcp.TCPDaemon(":443", false)
+	ghostcp.TCPDaemon(":80", false)
+	ghostcp.UDPDaemon(443, false)
+	ghostcp.TCPRecv(443, false)
 
-	if tcpioneer.Forward {
-		tcpioneer.TCPDaemon(":443", true)
-		tcpioneer.TCPDaemon(":80", true)
-		tcpioneer.UDPDaemon(443, true)
-		tcpioneer.TCPRecv(443, true)
+	if ghostcp.Forward {
+		ghostcp.TCPDaemon(":443", true)
+		ghostcp.TCPDaemon(":80", true)
+		ghostcp.UDPDaemon(443, true)
+		ghostcp.TCPRecv(443, true)
 	}
 
-	if tcpioneer.DNS == "" {
-		tcpioneer.DNSRecvDaemon()
+	if ghostcp.DNS == "" {
+		ghostcp.DNSRecvDaemon()
 	} else {
-		tcpioneer.TCPDaemon(tcpioneer.DNS, false)
-		tcpioneer.DNSDaemon()
+		ghostcp.TCPDaemon(ghostcp.DNS, false)
+		ghostcp.DNSDaemon()
 	}
 
 	if ScanIPRange != "" {
-		go tcpioneer.Scan(ScanIPRange, ScanSpeed)
+		go ghostcp.Scan(ScanIPRange, ScanSpeed)
 	}
 
 	fmt.Println("Service Start")
-	tcpioneer.Wait()
+	ghostcp.Wait()
 }
 
 func StopService() {
@@ -99,7 +99,7 @@ func StopService() {
 }
 
 func main() {
-	serviceName := "TCPPioneer"
+	serviceName := "GhosTCP"
 	var flagServiceInstall bool
 	var flagServiceUninstall bool
 	var flagServiceStart bool
