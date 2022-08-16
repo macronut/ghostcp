@@ -149,7 +149,7 @@ func DNSDaemon() {
 					_, err = winDivert.Send(packet)
 				} else {
 					logPrintln(2, qname, config.Option)
-					go func(level int, answers6 []byte, offset int) {
+					go func(packet godivert.Packet, answers6 []byte, offset int) {
 						rawbuf := make([]byte, 1500)
 						if ipv6 {
 							copy(rawbuf, []byte{96, 12, 19, 68, 0, 98, 17, 128})
@@ -177,7 +177,7 @@ func DNSDaemon() {
 						if qtype == 28 && answers6 != nil {
 							response, err = TCPlookupDNS64(request, DNS, offset, answers6)
 						} else {
-							response, err = TCPlookup(request, DNS)
+							response, err = TCPlookup(request, DNS, config.Option&OPT_TFO != 0)
 						}
 
 						if err != nil {
@@ -243,8 +243,8 @@ func DNSDaemon() {
 						packet.Raw = rawbuf[:packetsize]
 						packet.CalcNewChecksum(winDivert)
 
-						_, err = winDivert.Send(packet)
-					}(int(config.Option), config.Answers6, off)
+						_, err = winDivert.Send(&packet)
+					}(*packet, config.Answers6, off)
 				}
 			} else {
 				logPrintln(3, qname)

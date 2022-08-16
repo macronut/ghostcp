@@ -8,21 +8,36 @@ import (
 )
 
 var DNS string = ""
+var TFOPayload []byte = nil
 
-func TCPlookup(request []byte, address string) ([]byte, error) {
-	server, err := net.DialTimeout("tcp", address, time.Second*5)
-	if err != nil {
-		return nil, err
-	}
-	defer server.Close()
+func TCPlookup(request []byte, address string, tfo bool) ([]byte, error) {
+	var conn net.Conn
+	var err error
 	data := make([]byte, 1024)
-	binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
-	copy(data[2:], request)
+	if tfo {
+		binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
+		copy(data[2:], request)
+		TFOPayload = data[:len(request)+2]
 
-	_, err = server.Write(data[:len(request)+2])
-	if err != nil {
-		return nil, err
+		conn, err = net.DialTimeout("tcp", address, time.Second*5)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		conn, err = net.DialTimeout("tcp", address, time.Second*5)
+		if err != nil {
+			return nil, err
+		}
+		data := make([]byte, 1024)
+		binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
+		copy(data[2:], request)
+
+		_, err = conn.Write(data[:len(request)+2])
+		if err != nil {
+			return nil, err
+		}
 	}
+	defer conn.Close()
 
 	length := 0
 	recvlen := 0
@@ -30,7 +45,7 @@ func TCPlookup(request []byte, address string) ([]byte, error) {
 		if recvlen >= 1024 {
 			return nil, nil
 		}
-		n, err := server.Read(data[recvlen:])
+		n, err := conn.Read(data[recvlen:])
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +67,7 @@ func TCPlookupDNS64(request []byte, address string, offset int, prefix []byte) (
 	offset4 := offset
 
 	binary.BigEndian.PutUint16(request[offset-4:offset-2], 1)
-	response, err := TCPlookup(request, address)
+	response, err := TCPlookup(request, address, false)
 	if err != nil {
 		return nil, err
 	}

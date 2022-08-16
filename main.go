@@ -63,19 +63,20 @@ func StartService() {
 	ghostcp.TCPDaemon(":443", false)
 	ghostcp.TCPDaemon(":80", false)
 	ghostcp.UDPDaemon(443, false)
-	ghostcp.TCPRecv(443, false)
+	ghostcp.TCPRecv(":443", false)
 
 	if ghostcp.Forward {
 		ghostcp.TCPDaemon(":443", true)
 		ghostcp.TCPDaemon(":80", true)
 		ghostcp.UDPDaemon(443, true)
-		ghostcp.TCPRecv(443, true)
+		ghostcp.TCPRecv(":443", true)
 	}
 
 	if ghostcp.DNS == "" {
 		ghostcp.DNSRecvDaemon()
 	} else {
 		ghostcp.TCPDaemon(ghostcp.DNS, false)
+		ghostcp.TCPRecv(ghostcp.DNS, false)
 		ghostcp.DNSDaemon()
 	}
 
