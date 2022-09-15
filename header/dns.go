@@ -8,13 +8,14 @@ import (
 )
 
 var DNS string = ""
+var DNSOption uint32 = 0
 var TFOPayload []byte = nil
 
-func TCPlookup(request []byte, address string, tfo bool) ([]byte, error) {
+func TCPlookup(request []byte, address string) ([]byte, error) {
 	var conn net.Conn
 	var err error
 	data := make([]byte, 1024)
-	if tfo {
+	if DNSOption&OPT_TFO != 0 {
 		binary.BigEndian.PutUint16(data[:2], uint16(len(request)))
 		copy(data[2:], request)
 		TFOPayload = data[:len(request)+2]
@@ -67,7 +68,7 @@ func TCPlookupDNS64(request []byte, address string, offset int, prefix []byte) (
 	offset4 := offset
 
 	binary.BigEndian.PutUint16(request[offset-4:offset-2], 1)
-	response, err := TCPlookup(request, address, false)
+	response, err := TCPlookup(request, address)
 	if err != nil {
 		return nil, err
 	}

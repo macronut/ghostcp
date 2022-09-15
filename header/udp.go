@@ -177,7 +177,7 @@ func DNSDaemon() {
 						if qtype == 28 && answers6 != nil {
 							response, err = TCPlookupDNS64(request, DNS, offset, answers6)
 						} else {
-							response, err = TCPlookup(request, DNS, config.Option&OPT_TFO != 0)
+							response, err = TCPlookup(request, DNS)
 						}
 
 						if err != nil {
