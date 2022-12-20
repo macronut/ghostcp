@@ -79,7 +79,7 @@ func TCPRecv(address string, forward bool) {
 	var layer uint8
 	if forward {
 		if address[0] == ':' {
-			filter = fmt.Sprintf("tcp.SrcPort == %d and (", address[1:])
+			filter = fmt.Sprintf("tcp.SrcPort == %s and (", address[1:])
 		} else {
 			filter = fmt.Sprintf("ip.SrcAddr = %s and tcp.SrcPort == %d and (", tcpAddr.IP.String(), tcpAddr.Port)
 		}
