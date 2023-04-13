@@ -217,13 +217,23 @@ func TCPRecv(address string, forward bool) {
 					}
 
 					if info != nil && info.Option&OPT_TFO != 0 {
-						ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
-						ackNum = info.SeqNum + 1
-						binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
-						packet.CalcNewChecksum(winDivert)
+						tcpheadlen := int(packet.Raw[ipheadlen+12]>>4) * 4
+						optStart := ipheadlen + 20
+						option := packet.Raw[optStart : ipheadlen+tcpheadlen]
+						cookies := getCookies(option)
+						if cookies != nil {
+							tmp_cookies := make([]byte, len(cookies))
+							copy(tmp_cookies, cookies)
+							CookiesMap[packet.SrcIP().String()] = tmp_cookies
+							continue
+						} else {
+							ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
+							ackNum = info.SeqNum + 1
+							binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
+							packet.CalcNewChecksum(winDivert)
+						}
 					}
 				}
-
 			} else if packet.Raw[ipheadlen+13]|TCP_RST != 0 {
 				if DetectEnable {
 					dstPort, _ := packet.DstPort()
