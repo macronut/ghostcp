@@ -1,0 +1,52 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: build ghostcp
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        goos: [windows]
+        goarch: [amd64]
+    runs-on: ubuntu-latest
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Show workflow information 
+        run: |
+          export osarch=$GOOS-$GOARCH
+          echo "GOOS: $GOOS, GOARCH: $GOARCH, RELEASE_NAME: $osarch"
+          echo "osarch=$osarch" >> $GITHUB_ENV
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+          check-latest: true
+      - name: Get project dependencies
+        run: go mod download
+      - name: Build ghostcp
+        run: go build -v -o ghostcp-${{ env.osarch }}/ -trimpath -ldflags "-s -w -buildid=" ./...
+      # - name: Build background ghostcp on Windows 
+      #   if: matrix.goos == 'windows'
+      #   run: go build -v -o ghostcp-${{ env.osarch }}/wghostcp.exe -trimpath -ldflags "-s -w -H windowsgui -buildid=" ./...
+      - name: Package
+        run: |
+          cp README.md LICENSE release/* ghostcp-${{ env.osarch }}
+      - name: Upload files to Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ghostcp-${{ env.osarch }}
+          path: |
+            ./ghostcp-${{ env.osarch }}/*
