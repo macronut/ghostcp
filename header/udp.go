@@ -16,20 +16,16 @@ func DNSDaemon() {
 	cmd := exec.Command("ipconfig", arg...)
 	d, err := cmd.CombinedOutput()
 	if err != nil {
-		if LogLevel > 0 {
-			log.Println(string(d), err)
-		}
+		log.Println(string(d), err)
 		return
 	}
 
 	filter := "outbound and udp.DstPort == 53"
 	mutex.Lock()
-	winDivert, err := godivert.NewWinDivertHandle(filter)
+	winDivert, err := godivert.WinDivertOpen(filter, 0, 1, 0)
 	mutex.Unlock()
 	if err != nil {
-		if LogLevel > 0 {
-			log.Println(err, filter)
-		}
+		log.Println(err, filter)
 		return
 	}
 
@@ -244,11 +240,17 @@ func DNSDaemon() {
 						packet.CalcNewChecksum(winDivert)
 
 						_, err = winDivert.Send(&packet)
+						if err != nil {
+							log.Println(err)
+						}
 					}(*packet, config.Answers6, off)
 				}
 			} else {
 				logPrintln(3, qname)
 				_, err = winDivert.Send(packet)
+			}
+			if err != nil {
+				log.Println(err)
 			}
 		}
 	}()
@@ -368,6 +370,9 @@ func DNSRecvDaemon() {
 			}
 
 			_, err = winDivert.Send(packet)
+			if err != nil {
+				log.Println(err)
+			}
 		}
 	}()
 }

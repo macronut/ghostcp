@@ -58,12 +58,10 @@ func getCookies(option []byte) []byte {
 			optOff += int(option[optOff+1])
 		}
 	}
-
-	return nil
 }
 
 func TCPRecv(address string, forward bool) {
-	if (TFOEnable || RSTFilterEnable || DetectEnable) == false {
+	if !(TFOEnable || RSTFilterEnable || DetectEnable) {
 		return
 	}
 
@@ -147,7 +145,7 @@ func TCPRecv(address string, forward bool) {
 
 			if forward && !ipv6 {
 				lanAddr := [4]byte{192, 168, 137, 0}
-				if bytes.Compare(packet.Raw[16:19], lanAddr[:3]) == 0 {
+				if bytes.Equal(packet.Raw[16:19], lanAddr[:3]) {
 					_, err = winDivert.Send(packet)
 					if err != nil {
 						if LogLevel > 0 {
@@ -227,8 +225,7 @@ func TCPRecv(address string, forward bool) {
 							CookiesMap[packet.SrcIP().String()] = tmp_cookies
 							continue
 						} else {
-							ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
-							ackNum = info.SeqNum + 1
+							ackNum := info.SeqNum + 1
 							binary.BigEndian.PutUint32(packet.Raw[ipheadlen+8:], ackNum)
 							packet.CalcNewChecksum(winDivert)
 						}
@@ -283,7 +280,8 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 	fake_packet := *packet
 	copy(rawbuf, packet.Raw)
 
-	total_host_offset := ipheadlen + tcpheadlen + host_offset
+	payload_offset := ipheadlen + tcpheadlen
+	total_host_offset := payload_offset + host_offset
 	if host_length == 1 { //DNS
 		dot := int(rawbuf[total_host_offset] + 1)
 		for i := 1; i < int(packet.PacketLen); i++ {
@@ -297,6 +295,10 @@ func SendFakePacket(winDivert *godivert.WinDivertHandle, info *ConnInfo, packet 
 			} else {
 				rawbuf[i+total_host_offset] = domainBytes[rand.Intn(len(domainBytes))]
 			}
+		}
+	} else if true {
+		for i := payload_offset; i < len(packet.Raw); i++ {
+			rawbuf[i] = byte(rand.Intn(256))
 		}
 	} else {
 		for i := total_host_offset; i < total_host_offset+host_length-3; i++ {
@@ -543,7 +545,7 @@ func TCPDaemon(address string, forward bool) {
 
 			if forward && !ipv6 {
 				lanAddr := [4]byte{192, 168, 137, 0}
-				if bytes.Compare(packet.Raw[12:15], lanAddr[:3]) == 0 {
+				if bytes.Equal(packet.Raw[12:15], lanAddr[:3]) {
 					_, err = winDivert.Send(packet)
 					if err != nil {
 						if LogLevel > 0 {
@@ -582,7 +584,9 @@ func TCPDaemon(address string, forward bool) {
 				if payloadLen == 0 {
 					if info.Option&OPT_SYN != 0 {
 						_, err := winDivert.Send(packet)
-
+						if err != nil {
+							log.Println(err)
+						}
 						seqNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+4:])
 						ackNum := binary.BigEndian.Uint32(packet.Raw[ipheadlen+8:])
 						if seqNum != info.SeqNum+1 {
@@ -634,6 +638,10 @@ func TCPDaemon(address string, forward bool) {
 					}
 
 					_, err = winDivert.Send(packet)
+					if err != nil {
+						log.Println(err)
+					}
+
 					continue
 				}
 
@@ -772,6 +780,10 @@ func TCPDaemon(address string, forward bool) {
 						} else if payloadLen > 0 {
 							hello := packet.Raw[ipheadlen+tcpheadlen:]
 							host_offset, host_length = getSNI(hello)
+							if host_offset > payloadLen {
+								host_offset = 0
+								host_length = payloadLen
+							}
 						}
 					} else {
 						if info.Option&OPT_SAT != 0 && payloadLen > 0 {
@@ -830,12 +842,13 @@ func TCPDaemon(address string, forward bool) {
 				if (info.Option & 0xFFFF) != 0 {
 					if info.Option&OPT_MODE2 == 0 {
 						if info.Option&OPT_DF != 0 {
-							host_length, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 2)
+							_, err = SendFakePacket(winDivert, info, packet, host_offset, host_length, 2)
+							if err != nil {
+								log.Println(err)
+							}
 							_, err = winDivert.Send(packet)
 							if err != nil {
-								if LogLevel > 0 {
-									log.Println(err)
-								}
+								log.Println(err)
 							}
 							continue
 						}
@@ -1012,9 +1025,9 @@ func TCPDaemon(address string, forward bool) {
 							copy(SynOption, packet.Raw[ipheadlen+20:])
 
 							copy(rawbuf, packet.Raw)
-							cookies, _ := CookiesMap[dstAddr]
+							cookies, ok := CookiesMap[dstAddr]
 
-							if cookies != nil {
+							if ok && cookies != nil {
 								cookiesLen := len(cookies)
 								optLen := cookiesLen + 2
 								offset := byte((optLen + 3) / 4)
@@ -1034,6 +1047,8 @@ func TCPDaemon(address string, forward bool) {
 									rawbuf[packet.PacketLen+2] = 0x01
 									packet.PacketLen += 3
 								}
+
+								logPrintln(3, packet.DstIP(), "Cookies:", cookies)
 							} else {
 								binary.BigEndian.PutUint16(rawbuf[ipheadlen:], 3)
 								packet.PacketLen += 4
@@ -1246,91 +1261,59 @@ func NAT64(ipv4 net.IP, ipv6 net.IP, forward bool) {
 	}
 }
 
-type ProxyInfo struct {
-	SrcIP net.IP
-	DstIP net.IP
-	Port  uint16
-}
+func DNAT(ip net.IP, destination net.IP, forward bool) {
+	wg.Add(1)
+	defer wg.Done()
 
-var ProxyList4 [65536]*ProxyInfo
-var ProxyList6 [65536]*ProxyInfo
-
-func ProxyRedirect(forward bool) {
 	var filter string
 	var layer uint8
 	if forward {
-		filter = "tcp.SrcPort=6"
+		filter = fmt.Sprintf("ip.DstAddr=%s or ip.SrcAddr=%s", ip.String(), destination.String())
 		layer = 1
 	} else {
-		filter = "tcp.SrcPort=6"
+		filter = fmt.Sprintf("(outbound and ip.DstAddr=%s) or (inbound and ip.SrcAddr=%s)", ip.String(), destination.String())
 		layer = 0
 	}
 
 	mutex.Lock()
-	winDivert, err := godivert.WinDivertOpen(filter, layer, 0, 0)
+	winDivert, err := godivert.WinDivertOpen(filter, layer, 2, 0)
 	mutex.Unlock()
-
 	if err != nil {
 		if LogLevel > 0 {
 			log.Println(err, filter)
 		}
 		return
 	}
+	defer winDivert.Close()
 
-	go func() {
-		defer winDivert.Close()
-
-		for {
-			packet, err := winDivert.Recv()
-			if err != nil {
-				if LogLevel > 0 {
-					log.Println(err)
-				}
-				continue
+	for {
+		packet, err := winDivert.Recv()
+		if err != nil {
+			if LogLevel > 0 {
+				log.Println(err)
 			}
+			return
+		}
 
-			ipv6 := packet.Raw[0]>>4 == 6
-			var ipheadlen int
-			if ipv6 {
-				ipheadlen = 40
-			} else {
-				ipheadlen = int(packet.Raw[0]&0xF) * 4
-			}
-
-			if forward && !ipv6 {
-				lanAddr := [4]byte{192, 168, 137, 0}
-				if bytes.Compare(packet.Raw[16:19], lanAddr[:3]) == 0 {
-					_, err = winDivert.Send(packet)
-					if err != nil {
-						if LogLevel > 0 {
-							log.Println(err)
-						}
-					}
-					continue
-				}
-			}
-
-			dstPort := binary.BigEndian.Uint16(packet.Raw[ipheadlen+2:])
-			var info *ProxyInfo
-			if ipv6 {
-				info = ProxyList6[dstPort]
-			} else {
-				info = ProxyList4[dstPort]
-			}
-
-			if info != nil {
-				packet.SetDstIP(info.SrcIP)
-				packet.SetSrcIP(info.DstIP)
-				packet.SetSrcPort(info.Port)
-				packet.CalcNewChecksum(winDivert)
-			}
-
+		if packet.Direction() {
+			copy(packet.Raw[12:16], ip)
+			packet.CalcNewChecksum(winDivert)
 			_, err = winDivert.Send(packet)
-			if err != nil {
-				if LogLevel > 0 {
-					log.Println(err)
-				}
+		} else {
+			copy(packet.Raw[16:20], destination)
+			packet.CalcNewChecksum(winDivert)
+			if SrcMac == "" {
+				_, err = winDivert.Send(packet)
+			} else {
+				//err = SendPacket(packet.SrcIP(), packet.Raw)
 			}
 		}
-	}()
+
+		if err != nil {
+			if LogLevel > 0 {
+				log.Println(err)
+			}
+			return
+		}
+	}
 }

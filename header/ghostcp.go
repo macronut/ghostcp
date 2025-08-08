@@ -52,6 +52,9 @@ var DetectEnable = false
 var ScanURL string = ""
 var ScanTimeout uint = 0
 
+var SrcMac string = ""
+var DstMac string = ""
+
 const (
 	OPT_NONE  = 0x0
 	OPT_TTL   = 0x1 << 0
@@ -110,7 +113,7 @@ var Logger *log.Logger
 
 func logPrintln(level int, v ...interface{}) {
 	if LogLevel >= level {
-		fmt.Println(v)
+		log.Println(v...)
 	}
 }
 
@@ -227,30 +230,33 @@ func getSNI(b []byte) (offset int, length int) {
 	if handshakeType != 0x1 {
 		return 0, 0
 	}
-	//Length := binary.BigEndian.Uint16(b[3:5])
+	Length := binary.BigEndian.Uint16(b[3:5])
+	if Length > 2900 {
+		return 0, 0
+	}
 	//version = binary.BigEndian.Uint16(b[9:11])
 	offset = 11 + 32
 	SessionIDLength := b[offset]
 	offset += 1 + int(SessionIDLength)
 	if offset+2 >= payloadLen {
-		return 0, 0
+		return offset, 0
 	}
 	CipherSuitersLength := binary.BigEndian.Uint16(b[offset : offset+2])
 	offset += 2 + int(CipherSuitersLength)
 	if offset >= payloadLen {
-		return 0, 0
+		return offset, 0
 	}
 	CompressionMethodsLenght := b[offset]
 	offset += 1 + int(CompressionMethodsLenght)
 	if offset+2 > payloadLen {
-		return 0, 0
+		return offset, 0
 	}
 	ExtensionsLength := binary.BigEndian.Uint16(b[offset : offset+2])
 	offset += 2
 	ExtensionsEnd := offset + int(ExtensionsLength)
 	for offset < ExtensionsEnd {
 		if offset+4 > payloadLen {
-			return 0, 0
+			return offset, 0
 		}
 		ExtensionType := binary.BigEndian.Uint16(b[offset : offset+2])
 		offset += 2
@@ -260,7 +266,7 @@ func getSNI(b []byte) (offset int, length int) {
 			offset += 2
 			offset++
 			if offset+2 > payloadLen {
-				return 0, 0
+				return offset, 0
 			}
 			ServerNameLength := binary.BigEndian.Uint16(b[offset : offset+2])
 			offset += 2
@@ -272,7 +278,7 @@ func getSNI(b []byte) (offset int, length int) {
 			offset += int(ExtensionLength)
 		}
 	}
-	return 0, 0
+	return offset, 0
 }
 
 func getHost(b []byte) (offset int, length int) {
@@ -517,6 +523,10 @@ func LoadConfig() error {
 						} else {
 							logPrintln(1, string(line))
 						}
+					} else if keys[0] == "smac" {
+						SrcMac = keys[1]
+					} else if keys[0] == "dmac" {
+						DstMac = keys[1]
 					} else {
 						ip := net.ParseIP(keys[0])
 						if ip == nil {
@@ -565,10 +575,18 @@ func LoadConfig() error {
 							prefix := net.ParseIP(keys[1])
 							ip4 := ip.To4()
 							if ip4 != nil {
-								if Forward {
-									go NAT64(ip4, prefix, true)
+								destination := prefix.To4()
+								if destination != nil {
+									if Forward {
+										go DNAT(ip4, destination, true)
+									}
+									go DNAT(ip4, destination, false)
+								} else {
+									if Forward {
+										go NAT64(ip4, prefix, true)
+									}
+									go NAT64(ip4, prefix, false)
 								}
-								go NAT64(ip4, prefix, false)
 							}
 						}
 					}
